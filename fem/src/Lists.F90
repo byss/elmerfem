@@ -186,6 +186,7 @@ MODULE Lists
 
 CONTAINS
 
+!> Tag the active degrees of freedom and number them in order of appearance. 
 !------------------------------------------------------------------------------
   FUNCTION InitialPermutation( Perm,Model,Solver,Mesh, &
                    Equation,DGSolver,GlobalBubbles ) RESULT(k)
@@ -195,17 +196,17 @@ CONTAINS
      TYPE(Mesh_t)   :: Mesh
      TYPE(Solver_t), TARGET :: Solver
      INTEGER :: Perm(:)
-     INTEGER :: k
      CHARACTER(LEN=*) :: Equation
      LOGICAL, OPTIONAL :: DGSolver, GlobalBubbles
 !------------------------------------------------------------------------------
-     INTEGER i,j,l,t,n,e, EDOFs, FDOFs, BDOFs, ndofs, el_id
+     INTEGER i,j,l,t,n,e,k,k1,EDOFs, FDOFs, BDOFs, ndofs, el_id
      INTEGER :: Indexes(128)
      INTEGER, POINTER :: Def_Dofs(:)
      INTEGER, ALLOCATABLE :: EdgeDOFs(:), FaceDOFs(:)
-     LOGICAL :: FoundDG, DG, GB, Found, Radiation
+     LOGICAL :: FoundDG, DG, DB, GB, Found, Radiation
      TYPE(Element_t),POINTER :: Element, Edge, Face
-!------------------------------------------------------------------------------
+     CHARACTER(*), PARAMETER :: Caller = 'InitialPermutation'
+ !------------------------------------------------------------------------------
      Perm = 0
      k = 0
      EDOFs = Mesh % MaxEdgeDOFs
@@ -218,6 +219,56 @@ CONTAINS
      DG = .FALSE.
      IF ( PRESENT(DGSolver) ) DG=DGSolver
      FoundDG = .FALSE.
+
+
+     DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found ) 
+
+     ! Discontinuous bodies need special body-wise numbering
+     IF ( DB ) THEN
+       BLOCK
+         INTEGER, ALLOCATABLE :: NodeIndex(:)
+         INTEGER :: body_id
+
+         ALLOCATE( NodeIndex( Mesh % NumberOfNodes ) )
+         
+         DO body_id=1, Model % NumberOfBodies
+
+           NodeIndex = 0
+           k1 = k
+           
+           DO t=1,Mesh % NumberOfBulkElements
+             Element => Mesh % Elements(t) 
+             IF( Element % BodyId /= body_id ) CYCLE
+
+             IF ( CheckElementEquation(Model,Element,Equation) ) THEN
+               FoundDG = FoundDG .OR. Element % DGDOFs > 0
+               DO i=1,Element % DGDOFs
+                 j = Element % NodeIndexes(i)
+                 IF( NodeIndex(j) == 0 ) THEN
+                   k = k + 1
+                   NodeIndex(j) = k
+                 END IF
+                 Perm( Element % DGIndexes(i) ) = NodeIndex(j)
+               END DO
+             END IF
+           END DO
+
+           IF( k > k1 ) THEN
+             CALL Info( Caller,'Body '//TRIM(I2S(body_id))//&
+                 ' has '//TRIM(I2S(k-k1))//' db dofs',Level=15)
+           END IF
+         END DO
+
+         CALL Info(Caller,'Numbered '//TRIM(I2S(k))//&
+             ' db nodes from bulk hits',Level=15)
+
+         IF ( FoundDG ) THEN
+           RETURN ! Discontinuous bodies !!!
+         END IF
+       END BLOCK
+     END IF
+
+
      IF ( DG ) THEN
        DO t=1,Mesh % NumberOfEdges
          n = 0
@@ -231,7 +282,7 @@ CONTAINS
                 END DO
              END IF
          END IF
-
+         
          Element => Mesh % Edges(t) % BoundaryInfo % Right
          IF ( ASSOCIATED( Element ) ) THEN
              IF ( CheckElementEquation(Model,Element,Equation) ) THEN
@@ -252,6 +303,11 @@ CONTAINS
          END DO
        END DO
 
+       CALL Info(Caller,'Numbered '//TRIM(I2S(k))//&
+           ' nodes from face hits',Level=15)
+       k1 = k
+
+       
        DO t=1,Mesh % NumberOfFaces
          n = 0
          Element => Mesh % Faces(t) % BoundaryInfo % Left
@@ -285,6 +341,9 @@ CONTAINS
          END DO
        END DO
 
+       CALL Info(Caller,'Numbered '//TRIM(I2S(k-k1))//&
+           ' nodes from bulk hits',Level=15)
+       
        IF ( FoundDG ) THEN
           RETURN ! Discontinuous galerkin !!!
        END IF
