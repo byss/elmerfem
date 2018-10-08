@@ -1173,22 +1173,28 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
 !------------------------------------------------------------------------------
 !>    Create the structures required for a CRS format matrix.
 !------------------------------------------------------------------------------
-  FUNCTION CRS_CreateMatrix( N,Total,RowNonzeros,Ndeg,Reorder,AllocValues ) RESULT(A)
+  FUNCTION CRS_CreateMatrix( N,Total,RowNonzeros,Ndeg,Reorder,AllocValues,SetRows ) RESULT(A)
 !------------------------------------------------------------------------------
     INTEGER, INTENT(IN) :: N    !< Number of rows in the matrix
     INTEGER, INTENT(IN) :: Total  !< Total number of nonzero entries in the matrix
     INTEGER, INTENT(IN) :: Ndeg   !< Negrees of freedom
     INTEGER, INTENT(IN) :: RowNonzeros(:)  !< Number of nonzero entries in rows of the matrix
-    INTEGER, INTENT(IN) :: Reorder(:)      !< Permutation index for bandwidth reduction
+    INTEGER, INTENT(IN) :: Reorder(:)      !< Permutation index for bandwidth reduction    
     LOGICAL, INTENT(IN) :: AllocValues     !< Should the values arrays be allocated ?
+    LOGICAL, INTENT(IN), OPTIONAL :: SetRows
     TYPE(Matrix_t), POINTER :: A  !>  Pointer to the created Matrix_t structure.
 !------------------------------------------------------------------------------
     INTEGER :: i,j,k,istat
     INTEGER, POINTER CONTIG :: InvPerm(:)
+    LOGICAL :: SetRowSizes
 !------------------------------------------------------------------------------
 
     CALL Info('CRS_CreateMatrix','Creating CRS Matrix of size: '//TRIM(I2S(n)),Level=12)
 
+    SetRowSizes = .TRUE.
+    IF( PRESENT( SetRows ) ) SetRowSizes = SetRows
+
+    
     A => AllocateMatrix()
 
     ALLOCATE( A % Rows(n+1),A % Diag(n),STAT=istat )
@@ -1215,7 +1221,21 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
 
     NULLIFY( A % ILUValues )
     NULLIFY( A % CILUValues )
+    
+    A % NumberOfRows = N
+    A % Rows(1) = 1
+    A % Ordered = .FALSE.
 
+    ! We don't always want to set the rows as it is more easily done elsewhere
+    ! but for backward compatibility the default way is maintained.
+    IF(.NOT. SetRowSizes ) THEN
+      A % Cols = 0
+      A % Diag = 0
+      RETURN
+    END IF
+
+
+    
     InvPerm => A % Diag ! just available memory space...
     j = 0
     DO i=1,SIZE(Reorder)
@@ -1240,8 +1260,6 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
 #endif
 
     !$OMP SINGLE
-    A % NumberOfRows = N
-    A % Rows(1) = 1
     DO i=2,N
        j = InvPerm((i-2)/Ndeg+1)
        A % Rows(i) = A % Rows(i-1) + Ndeg*RowNonzeros(j)
@@ -1270,7 +1288,6 @@ SUBROUTINE CRS_RowSumInfo( A, Values )
 #endif
     !$OMP END PARALLEL
     
-    A % Ordered = .FALSE.
 
     CALL Info('CRS_CreateMatrix','Creating CRS Matrix finished',Level=14)
 
