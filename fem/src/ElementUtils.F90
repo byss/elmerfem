@@ -316,8 +316,12 @@ CONTAINS
     GB = .FALSE.
     IF ( PRESENT(GlobalBubbles) ) GB = GlobalBubbles
 
-    DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found) 
-
+    IF( DgSolver ) THEN
+      DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found) 
+    ELSE
+      DB = .FALSE.
+    END IF
+      
     List => List_AllocateMatrix(LocalNodes)
 
     BDOFs = Mesh % MaxBDOFs
@@ -1337,7 +1341,12 @@ CONTAINS
      GB = .FALSE.
      IF ( PRESENT(GlobalBubbles) )  GB=GlobalBubbles
 
-     DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found ) 
+     IF( Dg ) THEN
+       DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found ) 
+     ELSE
+       DB = .FALSE.
+     END IF
+       
      IF( DB .AND. OptimizeBW ) THEN
        CALL Info('CreateMatrix','Suppressing bandwidth optimization for discontinuous bodies',Level=8)
        OptimizeBW = .FALSE.

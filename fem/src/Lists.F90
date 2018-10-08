@@ -220,9 +220,12 @@ CONTAINS
      IF ( PRESENT(DGSolver) ) DG=DGSolver
      FoundDG = .FALSE.
 
-
-     DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found ) 
-
+     IF( DG ) THEN    
+       DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found ) 
+     ELSE
+       DB = .FALSE.
+     END IF
+       
      ! Discontinuous bodies need special body-wise numbering
      IF ( DB ) THEN
        BLOCK
