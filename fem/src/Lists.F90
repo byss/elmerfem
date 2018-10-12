@@ -5066,7 +5066,7 @@ CONTAINS
              RETURN
            END IF
            
-           CALL ListPushActiveName(Handle % name)
+           !CALL ListPushActiveName(Handle % name)
            DO i=1,n
              F(i) = ptr % Coeff * &
                  ExecConstRealFunction( ptr % PROCEDURE,CurrentModel, &
@@ -5110,7 +5110,7 @@ CONTAINS
            k = LEN_TRIM(cmd)
            CALL matc( cmd, tmp_str, k )
            
-           CALL ListPushActiveName(Handle % name)
+           !CALL ListPushActiveName(Handle % name)
            
            !CALL ListParseStrToVars( Ptr % DependName, Ptr % DepNameLen, &
            !    Handle % Name, VarCount, VarTable, SomeAtIp, SomeAtNodes, AllGlobal )
@@ -5562,7 +5562,7 @@ CONTAINS
        CASE( LIST_TYPE_VARIABLE_SCALAR )
          Handle % GlobalInList = .FALSE.
 
-         CALL ListPushActiveName(Handle % name)
+         !CALL ListPushActiveName(Handle % name)
 
          DO i=1,n
            node = NodeIndexes(i)
