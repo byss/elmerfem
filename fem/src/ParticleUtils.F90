@@ -615,7 +615,7 @@ CONTAINS
     ! Create list of faces / edges 
     !-------------------------------------------------------------------------
     Mesh => GetMesh()
-    CALL FindMeshEdges( Mesh, .FALSE.)
+    CALL FindMeshEdges( Mesh )
     IF ( ParEnv % PEs > 1 ) THEN
       CALL SParEdgeNumbering(Mesh,Allmesh=.TRUE.)
       CALL SParFaceNumbering(Mesh,Allmesh=.TRUE.)
@@ -1121,6 +1121,9 @@ RETURN
     
     INTEGER, POINTER :: Neighbours(:)
     LOGICAL, POINTER :: FaceInterface(:), IsNeighbour(:)
+
+    INTEGER :: q
+    LOGICAL, ALLOCATABLE :: Failed(:)
     
     TYPE ExchgInfo_t
       INTEGER :: n=0
@@ -1467,12 +1470,15 @@ RETURN
       
       CALL MPI_RECV( Indexes, n, MPI_INTEGER, proc, &
           1001, ELMER_COMM_WORLD, status, ierr )
+
+      ALLOCATE(Failed(n))
+      Failed = .FALSE.
       
       n_part=Particles % NumberOfParticles
       DO j=1,n
         k=SearchElement( nFaces, Faces, Indexes(j) )
         IF ( k <= 0 ) THEN
-          PRINT*,ParEnv % myPE, 'failed'
+          Failed(j) = .TRUE.
           CYCLE
         END IF
         
@@ -1495,44 +1501,59 @@ RETURN
       n_part=Particles % NumberOfParticles
       m = 0
       DO k=1,dim
+        q = 0
         DO l=1,n
           m = m + 1
-          Particles % Coordinate(n_part+l,k) = Buf(m)
+          IF(Failed(l)) CYCLE
+          q = q + 1
+          Particles % Coordinate(n_part+q,k) = Buf(m)
         END DO
       END DO
       
       IF ( ASSOCIATED(Particles % Velocity) ) THEN
         DO k=1,dim
+          q = 0
           DO l=1,n
             m = m + 1
-            Particles % Velocity(n_part+l,k) = Buf(m)
+            IF(Failed(l)) CYCLE
+            q = q + 1
+            Particles % Velocity(n_part+q,k) = Buf(m)
           END DO
         END DO
       END IF
 
       IF ( ASSOCIATED(Particles % Force) ) THEN
         DO k=1,dim
+          q = 0
           DO l=1,n
             m = m + 1
-            Particles % Force(n_part+l,k) = Buf(m)
+            IF(Failed(l)) CYCLE
+            q = q + 1
+            Particles % Force(n_part+q,k) = Buf(m)
           END DO
         END DO
       END IF
 
       IF ( ASSOCIATED(Particles % PrevCoordinate) ) THEN
         DO k=1,dim
+          q = 0
           DO l=1,n
             m = m + 1
-            Particles % PrevCoordinate(n_part+l,k) = Buf(m)
+            IF (Failed(l)) CYCLE
+            q = q + 1
+            Particles % PrevCoordinate(n_part+q,k) = Buf(m)
           END DO
         END DO
       END IF
 
       IF ( ASSOCIATED(Particles % PrevVelocity) ) THEN
         DO k=1,dim
+          q  = 0
           DO l=1,n
             m = m + 1
-            Particles % PrevVelocity(n_part+l,k) = Buf(m)
+            IF (Failed(l)) CYCLE
+            q = q + 1
+            Particles % PrevVelocity(n_part+q,k) = Buf(m)
           END DO
         END DO
       END IF
@@ -1540,9 +1561,12 @@ RETURN
       Var => Particles % Variables
       DO WHILE( ASSOCIATED(Var) )
         IF( Var % Dofs == 1 ) THEN
+          q = 0
           DO l=1,n
             m = m + 1
-            Var % Values(n_part+l) = Buf(m)
+            IF(Failed(l)) CYCLE
+            q = q + 1
+            Var % Values(n_part+q) = Buf(m)
           END DO
         END IF
         Var => Var % Next 
@@ -1559,24 +1583,30 @@ RETURN
         
        m = 0
        IF( ASSOCIATED( Particles % NodeIndex ) ) THEN
+         q = 0
          DO l=1,n
            m = m + 1
-           Particles % NodeIndex(n_part+l) = BufInt(m)
+           IF(Failed(l)) CYCLE
+           q = q + 1
+           Particles % NodeIndex(n_part+q) = BufInt(m)
          END DO
        END IF
 
        IF( ASSOCIATED( Particles % Partition ) ) THEN
+         q = 0
          DO l=1,n
            m = m + 1
-           Particles % Partition(n_part+l) = BufInt(m)
+           IF(Failed(l)) CYCLE
+           q = q + 1
+           Particles % Partition(n_part+q) = BufInt(m)
          END DO
        END IF
 
        DEALLOCATE(BufInt)
       END IF
       
-      Particles % NumberOfParticles = Particles % NumberOfParticles + n
-      DEALLOCATE(Indexes)
+      Particles % NumberOfParticles = Particles % NumberOfParticles + COUNT(.NOT.Failed)
+      DEALLOCATE(Indexes, Failed)
     END DO
     
     DEALLOCATE(Recv_Parts, Neigh, Requests)
@@ -1730,17 +1760,15 @@ RETURN
     !--------------------------
     DO i=1,NoPartitions
       IF( i-1 == ParEnv % MyPe ) CYCLE
-      CALL MPI_iRECV( RecvParts(i), 1, MPI_INTEGER, i-1, &
-          1000, ELMER_COMM_WORLD, requests(i), ierr )
-    END DO
-    
-    DO i=1,NoPartitions
-      IF( i-1 == ParEnv % MyPe ) CYCLE
       CALL MPI_BSEND( SentParts(i), 1, MPI_INTEGER, i-1, &
           1000, ELMER_COMM_WORLD, ierr )
     END DO
-    CALL MPI_WaitAll( NoPartitions, Requests, MPI_STATUSES_IGNORE, ierr )
 
+    DO i=1,NoPartitions
+      IF( i-1 == ParEnv % MyPe ) CYCLE
+      CALL MPI_RECV( RecvParts(i), 1, MPI_INTEGER, i-1, &
+          1000, ELMER_COMM_WORLD, Status, ierr )
+    END DO
     
     n = SUM(RecvParts)
     CALL Info('ParticleAdvectParallel','Particles to be recieved: '//TRIM(I2S(n)),Level=12)
@@ -2270,12 +2298,13 @@ RETURN
   !> Initialize particle positions and velocities with a number of different
   !> methods, both random and uniform.
   !-------------------------------------------------------------------------
-  SUBROUTINE InitializeParticles( Particles, InitParticles, AppendParticles, Group ) 
+  SUBROUTINE InitializeParticles( Particles, InitParticles, AppendParticles, Group, SaveOrigin ) 
     
     TYPE(Particle_t), POINTER :: Particles
     INTEGER, OPTIONAL :: InitParticles
     LOGICAL, OPTIONAL :: AppendParticles
     INTEGER, OPTIONAL :: Group
+    LOGICAL, OPTIONAL :: SaveOrigin
     
     TYPE(ValueList_t), POINTER :: Params, BodyForce 
     TYPE(Variable_t), POINTER :: Var
@@ -2289,7 +2318,7 @@ RETURN
     CHARACTER(LEN=MAX_NAME_LEN) :: InitMethod
     INTEGER :: i,j,k,l,n,vdofs,nonodes, InitStatus, TotParticles
     INTEGER, POINTER :: MaskPerm(:), InvPerm(:), NodeIndexes(:)
-    LOGICAL :: Found, GotIt, GotMask, RequirePositivity, ContinuousNumbering, GotWeight
+    LOGICAL :: Found, GotIt, GotMask, RequirePositivity, GotWeight
     REAL(KIND=dp), POINTER :: InitialValues(:,:)
     REAL(KIND=dp) :: mass,boltz,temp,coeff,eps,frac,meanval 
     REAL(KIND=dp) :: MinCoord(3), MaxCoord(3), Diam, DetJ, MinDetJ, MaxDetJ, &
@@ -2297,7 +2326,7 @@ RETURN
     REAL(KIND=dp), POINTER :: MaskVal(:)
     REAL(KIND=dp), ALLOCATABLE :: Weight(:)
     INTEGER :: nx,ny,nz,nmax,ix,iy,iz,ind
-    LOGICAL :: CheckForSize, Parallel    
+    LOGICAL :: CheckForSize, Parallel, SaveParticleOrigin
     LOGICAL, POINTER :: DoneParticle(:)
     CHARACTER(LEN=MAX_NAME_LEN) :: VariableName, str
     
@@ -2308,6 +2337,12 @@ RETURN
     Params => ListGetSolverParams()
     dim = Particles % Dim
     Parallel = ( ParEnv % PEs > 1 )
+
+    IF( PRESENT( SaveOrigin ) ) THEN
+      SaveParticleOrigin = SaveOrigin
+    ELSE
+      SaveParticleOrigin = .FALSE.
+    END IF
     
     !------------------------------------------------------------------------
     ! Initialize the timestepping strategy stuff
@@ -2478,6 +2513,8 @@ RETURN
     ELSE
       Offset = 0
     END IF
+
+    
     
     IF( PRESENT( InitParticles ) ) THEN
       NewParticles = InitParticles
@@ -2542,6 +2579,21 @@ RETURN
     !-------------------------------------------------------------------------    
     CALL AllocateParticles( Particles, LastParticle )
 
+    IF( SaveParticleOrigin ) THEN   
+      IF(.NOT. ASSOCIATED( Particles % NodeIndex ) ) THEN
+        ALLOCATE( Particles % NodeIndex( NewParticles ) )
+        Particles % NodeIndex = 0
+      END IF
+       
+      IF( Parallel ) THEN
+        IF(.NOT. ASSOCIATED( Particles % Partition ) ) THEN
+          ALLOCATE( Particles % Partition( NewParticles ) )
+        END IF
+        Particles % Partition = ParEnv % MyPe + 1
+      END IF
+    END IF
+        
+    
     IF( Particles % NumberOfGroups > 0 ) THEN
       IF( .NOT. PRESENT( Group ) ) THEN
         CALL Fatal('InitializeParticles','Group used inconsistently!')
@@ -2571,19 +2623,8 @@ RETURN
         IF( dim == 3 ) Coordinate(k,3) = Mesh % Nodes % z(j)
       END DO
 
-      ContinuousNumbering = .FALSE.
-      IF( GotMask ) THEN
-        IF( NewParticles == MAXVAL( MaskPerm ) ) ContinuousNumbering = .TRUE.
-      ELSE IF( NewParticles == Mesh % NumberOfNodes ) THEN
-        ContinuousNumbering = .TRUE.
-      END IF
 
-      IF( ContinuousNumbering ) THEN
-        IF(.NOT. ASSOCIATED( Particles % NodeIndex ) ) THEN
-          ALLOCATE( Particles % NodeIndex( NewParticles ) )
-          Particles % NodeIndex = 0
-        END IF
-        
+      IF( SaveParticleOrigin ) THEN
         DO i=1,Mesh % NumberOfBulkElements
           CurrentElement => Mesh % Elements(i)
           NodeIndexes =>  CurrentElement % NodeIndexes
@@ -2598,14 +2639,6 @@ RETURN
             Particles % NodeIndex(k) = NodeIndexes(j)
           END DO
         END DO
-
-        IF( Parallel ) THEN
-          IF(.NOT. ASSOCIATED( Particles % Partition ) ) THEN
-            ALLOCATE( Particles % Partition( NewParticles ) )
-          END IF
-          Particles % Partition = ParEnv % MyPe + 1
-        END IF
-
       END IF
 
 
@@ -2767,6 +2800,12 @@ RETURN
           Particles % ElementIndex(i) = j
         END IF
       END DO
+
+
+      IF( SaveParticleOrigin ) THEN
+        ! For now the initial index is confusingly named always "NodeIndex"
+        Particles % NodeIndex = Particles % ElementIndex
+      END IF
 
       
     CASE ('sphere random')
@@ -2959,19 +2998,41 @@ RETURN
       IF(.NOT. GotIt) VariableName = 'Flow Solution'
       Var => VariableGet( Mesh % Variables, TRIM(VariableName) )
       IF( .NOT. ASSOCIATED( Var ) ) THEN
-        CALL Warn('InitializeParticles','Velocity variable needed for method >nodal velocity<')
-      ELSE        
-        vdofs = Var % Dofs
-        DO i=1,NewParticles
-          k = Offset + i
-          l = Particles % NodeIndex(i)
-          l = Var % Perm(l)
-          DO j=1,dim
-            Velocity(k,j) = Var % Values(vdofs*(l-1)+j)
-          END DO
-        END DO
+        CALL Fatal('InitializeParticles','Velocity variable needed for method >nodal velocity<')
       END IF
 
+      vdofs = Var % Dofs
+      DO i=1,NewParticles
+        k = Offset + i
+        l = Particles % NodeIndex(i)
+        l = Var % Perm(l)
+        DO j=1,dim
+          Velocity(k,j) = Var % Values(vdofs*(l-1)+j)
+        END DO
+      END DO
+
+    CASE ('elemental velocity') 
+      CALL Info('InitializeParticles',&
+          'Initializing velocities from the corresponding elemental velocity',Level=10)
+      
+      VariableName = ListGetString( Params,'Velocity Variable Name',GotIt )
+      IF(.NOT. GotIt) VariableName = 'Flow Solution'
+      Var => VariableGet( Mesh % Variables, TRIM(VariableName) )
+      IF( .NOT. ASSOCIATED( Var ) ) THEN
+        CALL Fatal('InitializeParticles','Velocity variable needed for method >elemental velocity<')
+      END IF
+
+      vdofs = Var % Dofs
+      DO i=1,NewParticles
+        k = Offset + i
+        l = Particles % NodeIndex(i) ! now an elemental index
+        NodeIndexes => Mesh % Elements(l) % NodeIndexes
+        DO j=1,dim
+          Velocity(k,j) = SUM( Var % Values(vdofs*(Var % Perm(NodeIndexes)-1)+j) ) / SIZE( NodeIndexes )
+        END DO
+      END DO
+
+      
     CASE ('thermal random')  
        CALL Info('InitializeParticles',&
           'Initializing velocities from a thermal distribution',Level=10)
