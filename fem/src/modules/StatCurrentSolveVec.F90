@@ -57,11 +57,7 @@ SUBROUTINE StatCurrentSolver_init( Model,Solver,dt,Transient )
   TYPE(ValueList_t), POINTER :: Params
   LOGICAL :: Found, CalculateElemental, CalculateNodal
   INTEGER :: dim
-  
-  IF ( CurrentCoordinateSystem() /= Cartesian ) THEN
-    CALL Fatal(Caller,'Implemented only in cartesian coordinates')
-  END IF
-  
+   
   Params => GetSolverParams()
   dim = CoordinateSystemDimension()
 
@@ -234,7 +230,7 @@ SUBROUTINE StatCurrentSolver( Model,Solver,dt,Transient )
        !$OMP DO
        DO t=1,Active
           Element => GetBoundaryElement(t)
-          ! WRITE (*,*) Element % ElementIndex
+          !WRITE (*,*) Element % ElementIndex
           totelem = totelem + 1
           IF(ActiveBoundaryElement(Element)) THEN
              n  = GetElementNOFNodes(Element)
@@ -414,8 +410,6 @@ CONTAINS
     
     dim = CoordinateSystemDimension()
 
-    ! Currently the vectorized basis always use p-elements which have different
-    ! local coordinate convention
     IP = GaussPoints( Element )
 
     ! Allocate storage if needed
@@ -435,7 +429,7 @@ CONTAINS
     MASS  = 0._dp
     STIFF = 0._dp
     FORCE = 0._dp
-
+    
     DO t=1,IP % n
       ! Basis function values & derivatives at the integration point:
       !--------------------------------------------------------------
@@ -458,16 +452,16 @@ CONTAINS
         MASS(1:nd,1:nd) = MASS(1:nd,1:nd) + Weight * &
             EpsAtIp * MATMUL( dBasisdx, TRANSPOSE( dBasisdx ) )
       END IF
-
+      
       SourceAtIP = ListGetElementReal( SourceCoeff_h, Basis, Element, Found ) 
       IF( Found ) THEN
         FORCE(1:nd) = FORCE(1:nd) + Weight * SourceAtIP * Basis(1:nd)
       END IF
     END DO
-      
+    
     IF(Transient) CALL Default1stOrderTime(MASS,STIFF,FORCE,UElement=Element)
     CALL CondensateP( nd-nb, nb, STIFF, FORCE )
-
+    
     CALL DefaultUpdateEquations(STIFF,FORCE,UElement=Element, VecAssembly=VecAsm)
 !------------------------------------------------------------------------------
   END SUBROUTINE LocalMatrix

@@ -3446,7 +3446,6 @@ CONTAINS
      INTEGER :: ind
      INTEGER :: count
      REAL(KIND=dp) :: T(:)
-     LOGICAL :: SomeAtIp
 !------------------------------------------------------------------------------
      TYPE(Element_t), POINTER :: Element
      INTEGER :: i,j,k,n,k1,l,varsize,vari
@@ -3456,8 +3455,10 @@ CONTAINS
      count = 0
      Failed = .FALSE.
      
-     DO Vari = 1, VarCount 
+     DO Vari = 1, VarCount
+       
        Var => VarTable(Vari) % Variable
+
        Varsize = SIZE( Var % Values ) / Var % Dofs 
        
        IF( Varsize == 1 ) THEN
@@ -4228,11 +4229,13 @@ CONTAINS
      Handle % NotPresentAnywhere = .TRUE.
      Handle % SomewhereEvaluateAtIP = .FALSE.
      Handle % GlobalEverywhere = .TRUE.
+     Handle % SomeVarAtIp = .FALSE.
      Handle % Name = Name 
      Handle % ListId = -1
      Handle % EvaluateAtIp = .FALSE.       
      Handle % List => NULL()
      Handle % Element => NULL()
+     Handle % Unfoundfatal = .FALSE.
      IF (.NOT. ASSOCIATED( Ptr ) ) THEN
        Handle % Ptr => ListAllocate()
      END IF
@@ -4614,10 +4617,10 @@ CONTAINS
      TYPE(ValueListEntry_t), POINTER :: ptr
      INTEGER, POINTER :: NodeIndexes(:)
      REAL(KIND=dp) :: T(MAX_FNC),x,y,z
-     TYPE(VariableTable_t) :: VarTable(MAX_FNC)
+!     TYPE(VariableTable_t), SAVE :: VarTable(MAX_FNC)
      REAL(KIND=dp), POINTER :: F(:)
      REAL(KIND=dp), POINTER :: ParF(:,:)
-     INTEGER :: i,j,k,j2,k2,k1,l,l0,l1,lsize,n,bodyid,id,varcount,n1,n2
+     INTEGER :: i,j,k,j2,k2,k1,l,l0,l1,lsize,n,bodyid,id,n1,n2
      CHARACTER(LEN=MAX_NAME_LEN) ::  cmd, tmp_str
      LOGICAL :: AllGlobal, SomeAtIp, SomeAtNodes, ListSame, ListFound, GotIt, IntFound, &
          ElementSame
@@ -4688,7 +4691,7 @@ CONTAINS
        Handle % Found = IntFound
        IF(.NOT. IntFound ) THEN
          IF( Handle % UnfoundFatal ) THEN
-           CALL Fatal('ListGetElementReal','Could not find keyword in list: '//TRIM(Handle % Name))
+           CALL Fatal('ListGetElementReal','Could not find required keyword in list: '//TRIM(Handle % Name))
          END IF
          RETURN
        END IF
@@ -4731,15 +4734,19 @@ CONTAINS
 
        IF( Ptr % DepNameLen > 0 ) THEN         
          CALL ListParseStrToVars( Ptr % DependName, Ptr % DepNameLen, &
-             Handle % Name, VarCount, VarTable, SomeAtIp, SomeAtNodes, AllGlobal )
-         
+             Handle % Name, Handle % VarCount, Handle % VarTable, &
+             SomeAtIp, SomeAtNodes, AllGlobal )
+
          Handle % GlobalInList = ( AllGlobal .AND. ptr % PROCEDURE == 0 )
          
-         ! If some input parameter is given at integration point we don't have any option other than evaluate things on IPs
+         ! If some input parameter is given at integration point
+         ! we don't have any option other than evaluate things on IPs
          IF( SomeAtIP ) Handle % EvaluateAtIp = .TRUE.
+         Handle % SomeVarAtIp = SomeAtIp 
          
          ! If all variables are global ondes we don't need to evaluate things on IPs
          IF( AllGlobal ) Handle % EvaluateAtIp = .FALSE.
+
        ELSE
          Handle % GlobalInList = ( ptr % PROCEDURE == 0 )
        END IF
@@ -4763,8 +4770,7 @@ CONTAINS
      ! or first at nodes and then using basis functions at IP.
      ! The latter is the default. 
      !------------------------------------------------------------------
-     IF( Handle % EvaluateAtIp ) THEN
-
+     IF( Handle % EvaluateAtIp ) THEN       
        IF(.NOT. PRESENT(Basis)) THEN
          CALL Fatal('ListGetElementReal','Parameter > Basis < is required!')
        END IF
@@ -4814,7 +4820,7 @@ CONTAINS
            DO i=1,n
              k = NodeIndexes(i)
 
-             CALL VarsToValuesOnNodes( VarCount, VarTable, k, T, j )
+             CALL VarsToValuesOnNodes( Handle % VarCount, Handle % VarTable, k, T, j )
              
              Handle % ParNo = j 
              Handle % ParValues(1:j,i) = T(1:j)
@@ -4838,11 +4844,11 @@ CONTAINS
          END DO
 
          ! This one only deals with the variables on IPs, nodal ones are fetched separately
-         IF( SomeAtIp ) THEN
+         IF( Handle % SomeVarAtIp ) THEN
            IF( .NOT. PRESENT( GaussPoint ) ) THEN
              CALL Fatal('ListGetElementReal','Evaluation of ip fields requires gauss points as parameter!')
            END IF
-           CALL VarsToValuesOnIps( VarCount, VarTable, GaussPoint, T, j )
+           CALL VarsToValuesOnIps( Handle % VarCount, Handle % VarTable, GaussPoint, T, j )
          END IF         
          
          ! there is no node index, pass the negative GaussPoint as to separate it from positive node index
@@ -4862,11 +4868,11 @@ CONTAINS
          END DO
          
          ! This one only deals with the variables on IPs, nodal ones have been fecthed already
-         IF( SomeAtIp ) THEN
+         IF( Handle % SomeVarAtIp ) THEN
            IF( .NOT. PRESENT( GaussPoint ) ) THEN
              CALL Fatal('ListGetElementReal','Evaluation of ip fields requires gauss points as parameter!')
            END IF
-           CALL VarsToValuesOnIps( VarCount, VarTable, GaussPoint, T, j )
+           CALL VarsToValuesOnIps( Handle % VarCount, Handle % VarTable, GaussPoint, T, j )
          END IF
                           
          TVar => VariableGet( CurrentModel % Variables, 'Time' ) 
@@ -4960,10 +4966,13 @@ CONTAINS
 
          CASE( LIST_TYPE_VARIABLE_SCALAR )
            !CALL ListPushActiveName(Handle % name)
+
+           T = 1.0_dp
            
            DO i=1,n
              k = NodeIndexes(i)
-             CALL VarsToValuesOnNodes( VarCount, VarTable, k, T, j )
+
+             CALL VarsToValuesOnNodes( Handle % VarCount, Handle % VarTable, k, T, j )
 
              IF ( .NOT. ANY( T(1:j) == HUGE(1.0_dp) ) ) THEN
                IF ( ptr % PROCEDURE /= 0 ) THEN
@@ -5012,7 +5021,7 @@ CONTAINS
            
            DO i=1,n
              k = NodeIndexes(i)
-             CALL VarsToValuesOnNodes( VarCount, VarTable, k, T, j )
+             CALL VarsToValuesOnNodes( Handle % VarCount, Handle % VarTable, k, T, j )
 #ifdef HAVE_LUA
              IF ( .NOT. ptr % LuaFun ) THEN
 #endif
@@ -5110,7 +5119,7 @@ CONTAINS
            DO i=1,n
              k = NodeIndexes(i)
              
-             CALL VarsToValuesOnNodes( VarCount, VarTable, k, T, j )
+             CALL VarsToValuesOnNodes( Handle % VarCount, Handle % VarTable, k, T, j )
              
              IF ( ptr % TYPE==LIST_TYPE_VARIABLE_TENSOR_STR) THEN
 #ifdef HAVE_LUA
@@ -5234,10 +5243,11 @@ CONTAINS
      TYPE(ValueListEntry_t), POINTER :: ptr
      INTEGER, POINTER :: NodeIndexes(:)
      REAL(KIND=dp) :: T(MAX_FNC),x,y,z, RValue
-     TYPE(VariableTable_t) :: VarTable(MAX_FNC)
+!     TYPE(VariableTable_t) :: VarTable(MAX_FNC)
      REAL(KIND=dp), POINTER :: F(:)
      REAL(KIND=dp), POINTER :: ParF(:,:)
-     INTEGER :: i,j,k,k1,l,l0,l1,lsize,n,bodyid,id,node,gp,varcount
+     INTEGER :: i,j,k,k1,l,l0,l1,lsize,n,bodyid,id,node,gp
+     !,varcount
      CHARACTER(LEN=MAX_NAME_LEN) :: cmd, tmp_str
      LOGICAL :: AllGlobal, SomeAtIp, SomeAtNodes, ListSame, ListFound, GotIt, IntFound
      TYPE(Element_t), POINTER :: PElement
@@ -5329,11 +5339,13 @@ CONTAINS
        
        IF( ptr % DepNameLen > 0 ) THEN
          CALL ListParseStrToVars( Ptr % DependName, Ptr % DepNameLen, &
-             Handle % Name, VarCount, VarTable, SomeAtIp, SomeAtNodes, AllGlobal )
+             Handle % Name, Handle % VarCount, Handle % VarTable, &
+             SomeAtIp, SomeAtNodes, AllGlobal )
          IF( SomeAtIp ) Handle % EvaluateAtIp = .TRUE.
          Handle % GlobalInList = ( AllGlobal .AND. ptr % PROCEDURE == 0 )
          IF( SomeAtIP ) Handle % EvaluateAtIp = .TRUE.
          IF( AllGlobal ) Handle % EvaluateAtIp = .FALSE.
+         Handle % SomeVarAtIp = SomeAtIp 
        ELSE
          Handle % GlobalInList = ( ptr % PROCEDURE == 0 )
        END IF
@@ -5395,7 +5407,7 @@ CONTAINS
          
          DO i=1,n
            node = NodeIndexes(i)
-           CALL VarsToValuesOnNodes( VarCount, VarTable, node, T, j )
+           CALL VarsToValuesOnNodes( Handle % VarCount, Handle % VarTable, node, T, j )
 
            IF( Handle % GlobalInList ) THEN
              CALL Warn('ListGetElementRealVec','Constant expression need not be evaluated at IPs!')
@@ -5459,8 +5471,8 @@ CONTAINS
            END DO
 
            ! This one only deals with the variables on IPs, nodal ones have been fecthed already
-           IF( SomeAtIp ) THEN
-             CALL VarsToValuesOnIps( VarCount, VarTable, gp, T, j )
+           IF( Handle % SomeVarAtIp ) THEN
+             CALL VarsToValuesOnIps( Handle % VarCount, Handle % VarTable, gp, T, j )
            END IF
 
 #ifdef HAVE_LUA
@@ -5551,7 +5563,7 @@ CONTAINS
 
          DO i=1,n
            node = NodeIndexes(i)
-           CALL VarsToValuesOnNodes( VarCount, VarTable, node, T, j )
+           CALL VarsToValuesOnNodes( Handle % VarCount, Handle % VarTable, node, T, j )
            
            IF ( ptr % PROCEDURE /= 0 ) THEN
              F(i) = ptr % Coeff * &
@@ -5616,7 +5628,7 @@ CONTAINS
          DO i=1,n
            k = NodeIndexes(i)
            
-           CALL VarsToValuesOnNodes( VarCount, VarTable, k, T, j )
+           CALL VarsToValuesOnNodes( Handle % VarCount, Handle % VarTable, k, T, j )
 
 #ifdef HAVE_LUA
            IF ( .not. ptr % LuaFun ) THEN
