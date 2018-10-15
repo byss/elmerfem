@@ -4733,18 +4733,16 @@ CONTAINS
          CALL ListParseStrToVars( Ptr % DependName, Ptr % DepNameLen, &
              Handle % Name, VarCount, VarTable, SomeAtIp, SomeAtNodes, AllGlobal )
          
-         IF( Ptr % TYPE == LIST_TYPE_VARIABLE_SCALAR .AND. ptr % PROCEDURE /= 0 ) THEN                      
-           Handle % GlobalInList = .FALSE.
-         ELSE
-           Handle % GlobalInList = AllGlobal
-         END IF
+         Handle % GlobalInList = ( AllGlobal .AND. ptr % PROCEDURE == 0 )
          
          ! If some input parameter is given at integration point we don't have any option other than evaluate things on IPs
          IF( SomeAtIP ) Handle % EvaluateAtIp = .TRUE.
          
          ! If all variables are global ondes we don't need to evaluate things on IPs
          IF( AllGlobal ) Handle % EvaluateAtIp = .FALSE.
-       END IF       
+       ELSE
+         Handle % GlobalInList = ( ptr % PROCEDURE == 0 )
+       END IF
      ELSE
        IF( Handle % UnfoundFatal ) THEN
          CALL Fatal('ListGetElementReal','Could not find list for required keyword: '//TRIM(Handle % Name))
@@ -4951,7 +4949,6 @@ CONTAINS
            
          CASE( LIST_TYPE_CONSTANT_SCALAR )
            
-           Handle % GlobalInList = .TRUE.                      
            IF ( .NOT. ASSOCIATED(ptr % FValues) ) THEN
              WRITE(Message,*) 'Value type for property [', TRIM(Handle % Name), &
                  '] not used consistently.'
@@ -4962,10 +4959,7 @@ CONTAINS
 
 
          CASE( LIST_TYPE_VARIABLE_SCALAR )
-           CALL ListPushActiveName(Handle % name)
-
-           !CALL ListParseStrToVars( Ptr % DependName, Ptr % DepNameLen, &
-           !    Handle % Name, VarCount, VarTable, SomeAtIp, SomeAtNodes, AllGlobal )
+           !CALL ListPushActiveName(Handle % name)
            
            DO i=1,n
              k = NodeIndexes(i)
@@ -4989,10 +4983,7 @@ CONTAINS
 
                  ! If the dependency table includes just global values (such as time) 
                  ! the values will be the same for all element entries.
-                 IF( AllGlobal ) THEN
-                   Handle % GlobalInList = .TRUE.
-                   EXIT
-                 END IF
+                 IF( Handle % GlobalInList ) EXIT
 
                END IF
              END IF
@@ -5000,7 +4991,6 @@ CONTAINS
            !CALL ListPopActiveName()
            
          CASE( LIST_TYPE_CONSTANT_SCALAR_STR )
-           Handle % GlobalInList = .TRUE.
            
            TVar => VariableGet( CurrentModel % Variables, 'Time' ) 
            WRITE( cmd, '(a,e15.8)' ) 'st = ', TVar % Values(1)
@@ -5014,21 +5004,17 @@ CONTAINS
            F(1) = ptr % Coeff * F(1) 
 
          CASE( LIST_TYPE_VARIABLE_SCALAR_STR )
-           Handle % GlobalInList = .FALSE.
 
            TVar => VariableGet( CurrentModel % Variables, 'Time' ) 
            WRITE( cmd, * ) 'tx=0; st = ', TVar % Values(1)
            k = LEN_TRIM(cmd)
            CALL matc( cmd, tmp_str, k )
-
-           !CALL ListParseStrToVars( Ptr % DependName, Ptr % DepNameLen, &
-           !    Handle % Name, VarCount, VarTable, SomeAtIp, SomeAtNodes, AllGlobal )
            
            DO i=1,n
              k = NodeIndexes(i)
              CALL VarsToValuesOnNodes( VarCount, VarTable, k, T, j )
 #ifdef HAVE_LUA
-             IF ( .not. ptr % LuaFun ) THEN
+             IF ( .NOT. ptr % LuaFun ) THEN
 #endif
 
                IF ( .NOT. ANY( T(1:j)==HUGE(1.0_dp) ) ) THEN
@@ -5037,7 +5023,7 @@ CONTAINS
                    k1 = LEN_TRIM(cmd)
                    CALL matc( cmd, tmp_str, k1 )
                  END DO
-
+                 
                  cmd = ptr % CValue
                  k1 = LEN_TRIM(cmd)
                  CALL matc( cmd, tmp_str, k1 )
@@ -5045,19 +5031,15 @@ CONTAINS
                  F(i) = ptr % Coeff * F(i)
                END IF
 #ifdef HAVE_LUA
-               ELSE
-                 call ElmerEvalLua(LuaState, ptr, T, F(i), varcount)
-               END IF
+             ELSE
+               CALL ElmerEvalLua(LuaState, ptr, T, F(i), varcount)
+             END IF
 #endif
 
-             IF( AllGlobal ) THEN
-               Handle % GlobalInList = .TRUE.
-               EXIT
-             END IF            
+             IF( Handle % GlobalInList ) EXIT
            END DO
 
          CASE( LIST_TYPE_CONSTANT_SCALAR_PROC )
-           Handle % GlobalInList = .FALSE.
            
            IF ( ptr % PROCEDURE == 0 ) THEN
              WRITE(Message,*) 'Value type for property [', TRIM(Handle % Name), &
@@ -5079,7 +5061,6 @@ CONTAINS
            
          CASE ( LIST_TYPE_CONSTANT_TENSOR )
            
-           Handle % GlobalInList = .TRUE.
            n1 = SIZE( Handle % Rtensor, 1 )
            n2 = SIZE( Handle % Rtensor, 2 )
            
@@ -5169,9 +5150,8 @@ CONTAINS
                Handle % Rtensor = ptr % Coeff * Handle % Rtensor
              END IF
              
-             IF( AllGlobal ) THEN
-               Handle % GlobalInList = .TRUE.               
-               EXIT
+             IF( Handle % GlobalInList ) THEN
+               EXIT              
              ELSE
                DO j2=1,N1
                  DO k2=1,N2               
@@ -5334,13 +5314,30 @@ CONTAINS
        
        ! It does not make sense to evaluate global variables at IP
        IF( Handle % SomewhereEvaluateAtIp ) THEN
+         ! Check whether the keyword should be evaluated at integration point directly                  
+         ! Only these dependency type may depend on position
+         IF( ptr % TYPE == LIST_TYPE_VARIABLE_SCALAR .OR. &
+             ptr % TYPE == LIST_TYPE_VARIABLE_SCALAR_STR .OR.  &
+             ptr % TYPE == LIST_TYPE_CONSTANT_SCALAR_PROC ) THEN
          ! Check whether the keyword should be evaluated at integration point directly
-         IF( ListGetLogical( List, TRIM( Handle % Name )//' At IP',GotIt ) ) THEN
-           Handle % EvaluateAtIp = .TRUE.
+           Handle % EvaluateAtIp = ListGetLogical( List, TRIM( Handle % Name )//' At IP',GotIt )
          ELSE
            Handle % EvaluateAtIp = .FALSE.
          END IF
        END IF
+
+       
+       IF( ptr % DepNameLen > 0 ) THEN
+         CALL ListParseStrToVars( Ptr % DependName, Ptr % DepNameLen, &
+             Handle % Name, VarCount, VarTable, SomeAtIp, SomeAtNodes, AllGlobal )
+         IF( SomeAtIp ) Handle % EvaluateAtIp = .TRUE.
+         Handle % GlobalInList = ( AllGlobal .AND. ptr % PROCEDURE == 0 )
+         IF( SomeAtIP ) Handle % EvaluateAtIp = .TRUE.
+         IF( AllGlobal ) Handle % EvaluateAtIp = .FALSE.
+       ELSE
+         Handle % GlobalInList = ( ptr % PROCEDURE == 0 )
+       END IF
+
      ELSE
        IF( Handle % UnfoundFatal ) THEN
          CALL Fatal('ListGetElementRealVec','Could not find list for required keyword: '//TRIM(Handle % Name))
@@ -5362,15 +5359,6 @@ CONTAINS
        END IF
        RETURN
      END IF
-
-     
-     IF( ptr % TYPE == LIST_TYPE_VARIABLE_SCALAR .OR. &
-         ptr % TYPE == LIST_TYPE_VARIABLE_SCALAR_STR ) THEN       
-         CALL ListParseStrToVars( Ptr % DependName, Ptr % DepNameLen, &
-             Handle % Name, VarCount, VarTable, SomeAtIp, SomeAtNodes, AllGlobal )
-         IF( SomeAtIp ) Handle % EvaluateAtIp = .TRUE.
-       END IF
-         
 
      ! Either evaluate parameter directly at IP, 
      ! or first at nodes and then using basis functions at IP.
@@ -5409,7 +5397,7 @@ CONTAINS
            node = NodeIndexes(i)
            CALL VarsToValuesOnNodes( VarCount, VarTable, node, T, j )
 
-           IF( AllGlobal ) THEN
+           IF( Handle % GlobalInList ) THEN
              CALL Warn('ListGetElementRealVec','Constant expression need not be evaluated at IPs!')
            END IF
 
@@ -5417,7 +5405,6 @@ CONTAINS
            Handle % ParValues(1:j,i) = T(1:j)
          END DO
 
-         Handle % GlobalInList = .FALSE.
          ParF => Handle % ParValues         
        END IF
 
@@ -5548,7 +5535,6 @@ CONTAINS
 
        CASE( LIST_TYPE_CONSTANT_SCALAR )
 
-         Handle % GlobalInList = .TRUE.                      
          IF ( .NOT. ASSOCIATED(ptr % FValues) ) THEN
            WRITE(Message,*) 'Value type for property [', TRIM(Handle % Name), &
                '] not used consistently.'
@@ -5560,7 +5546,6 @@ CONTAINS
 
 
        CASE( LIST_TYPE_VARIABLE_SCALAR )
-         Handle % GlobalInList = .FALSE.
 
          !CALL ListPushActiveName(Handle % name)
 
@@ -5585,10 +5570,7 @@ CONTAINS
 
              ! If the dependency table includes just global values (such as time) 
              ! the values will be the same for all element entries.
-             IF( AllGlobal ) THEN
-               Handle % GlobalInList = .TRUE.
-               EXIT
-             END IF
+             IF( Handle % GlobalInList ) EXIT
            END IF
          END DO
          
@@ -5602,10 +5584,7 @@ CONTAINS
          !CALL ListPopActiveName()
 
 
-
        CASE( LIST_TYPE_CONSTANT_SCALAR_STR )
-
-         Handle % GlobalInList = .TRUE.
 
          TVar => VariableGet( CurrentModel % Variables, 'Time' ) 
          WRITE( cmd, '(a,e15.8)' ) 'st = ', TVar % Values(1)
@@ -5623,8 +5602,6 @@ CONTAINS
 
        CASE( LIST_TYPE_VARIABLE_SCALAR_STR )
 
-         Handle % GlobalInList = .FALSE.
-
 #ifdef HAVE_LUA
          IF ( .not. ptr % LuaFun ) THEN
 #endif
@@ -5638,45 +5615,41 @@ CONTAINS
 
          DO i=1,n
            k = NodeIndexes(i)
-           CALL ListParseStrToValues( Ptr % DependName, Ptr % DepNameLen, k, &
-               Handle % Name, T, j, AllGlobal )
+           
+           CALL VarsToValuesOnNodes( VarCount, VarTable, k, T, j )
+
 #ifdef HAVE_LUA
            IF ( .not. ptr % LuaFun ) THEN
 #endif
-           IF ( .NOT. ANY( T(1:j)==HUGE(1.0_dp) ) ) THEN
-             DO l=1,j
-               WRITE( cmd, * ) 'tx('//TRIM(i2s(l-1))//')=', T(l)
+             IF ( .NOT. ANY( T(1:j)==HUGE(1.0_dp) ) ) THEN
+               DO l=1,j
+                 WRITE( cmd, * ) 'tx('//TRIM(i2s(l-1))//')=', T(l)
+                 k1 = LEN_TRIM(cmd)
+                 CALL matc( cmd, tmp_str, k1 )
+               END DO
+
+               cmd = ptr % CValue
                k1 = LEN_TRIM(cmd)
                CALL matc( cmd, tmp_str, k1 )
-             END DO
-
-             cmd = ptr % CValue
-             k1 = LEN_TRIM(cmd)
-             CALL matc( cmd, tmp_str, k1 )
-             READ( tmp_str(1:k1), * ) F(i)
-             F(i) = ptr % Coeff * F(i)
-           END IF
+               READ( tmp_str(1:k1), * ) F(i)
+               F(i) = ptr % Coeff * F(i)
+             END IF
 #ifdef HAVE_LUA
-         ELSE
-           call ElmerEvalLuaS(LuaState, ptr, T, F(i), j)
-           F(i) = ptr % coeff * F(i)
-         END IF
-#endif
-
-           IF( AllGlobal ) THEN
-             Handle % GlobalInList = .TRUE.
-             EXIT
+           ELSE
+             call ElmerEvalLuaS(LuaState, ptr, T, F(i), j)
+             F(i) = ptr % coeff * F(i)
            END IF
+#endif
+           IF( Handle % GlobalInList ) EXIT
          END DO
 
-         IF( AllGlobal ) THEN
+         IF( Handle % GlobalInList ) THEN
            Handle % ValuesVec(1:ngp) = F(1)
          ELSE
            DO gp=1,ngp
              Handle % ValuesVec(gp) = SUM( BasisVec(gp,1:n) *  F(1:n) )
            END DO
          END IF
-
 
        CASE( LIST_TYPE_CONSTANT_SCALAR_PROC )
          IF ( ptr % PROCEDURE == 0 ) THEN
