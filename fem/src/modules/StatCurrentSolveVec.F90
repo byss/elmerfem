@@ -895,7 +895,7 @@ CONTAINS
    IF( PotDiff > TINY( PotDiff ) ) THEN
      Resistance = PotDiff**2 / HeatingTot
      WRITE( Message, * ) 'Effective Resistance  :', Resistance
-     CALL Info( 'StatCurrentSolve', Message, Level=6 )
+     CALL Info(Caller, Message, Level=6 )
      CALL ListAddConstReal( Model % Simulation,'RES: Effective Resistance', Resistance )
    END IF
      
@@ -957,7 +957,7 @@ CONTAINS
      
    IF( Found ) THEN
      WRITE( Message, * ) 'Control Scaling       :', ControlScaling
-     CALL Info( 'StatCurrentSolve', Message, Level=4 )
+     CALL Info(Caller, Message, Level=4 )
      CALL ListAddConstReal( Model % Simulation, &
          'RES: CurrentSolver Scaling', ControlScaling )
      Solver % Variable % Values = ControlScaling * Solver % Variable % Values
