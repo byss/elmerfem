@@ -2405,7 +2405,10 @@ CONTAINS
 
       END DO
     END DO
-    WRITE( VtuUnit,'(A)') '    </PPointData>'
+    
+    IF( ScalarsExist .OR. VectorsExist) THEN
+      WRITE( VtuUnit,'(A)') '    </PPointData>'
+    END IF
   END IF
 
 
