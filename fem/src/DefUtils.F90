@@ -3233,7 +3233,14 @@ CONTAINS
       END IF
     END IF
     
-    
+
+    IF ( ListGetLogical( Params,'Linear System Save',Found )) THEN
+      saveslot = GetString( Params,'Linear System Save Slot', Found )
+      IF(.NOT. Found .OR. TRIM( saveslot ) == 'after') THEN
+        CALL SaveLinearSystem( Solver ) 
+      END IF
+    END IF
+
     
     ! If flux corrected transport is used then apply the corrector to the system
     IF( GetLogical( Params,'Linear System FCT',Found ) ) THEN

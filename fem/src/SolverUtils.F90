@@ -14110,8 +14110,9 @@ CONTAINS
     TYPE(ValueList_t), POINTER :: Params
     CHARACTER(LEN=MAX_NAME_LEN) :: dumpfile, dumpprefix
     INTEGER, POINTER :: Perm(:)
+    REAL(KIND=dp), POINTER :: Sol(:)
     INTEGER :: i
-    LOGICAL :: SaveMass, SaveDamp, SavePerm, Found , Parallel, CNumbering
+    LOGICAL :: SaveMass, SaveDamp, SavePerm, SaveSol, Found , Parallel, CNumbering
 !------------------------------------------------------------------------------
 
     CALL Info('SaveLinearSystem','Saving linear system',Level=4)
@@ -14173,6 +14174,26 @@ CONTAINS
         CLOSE( 1 ) 
       END IF
     END IF
+
+
+    SaveSol = ListGetLogical( Params,'Linear System Save Solution',Found)
+    IF( SaveSol ) THEN
+      Sol => Solver % Variable % Values
+      IF( .NOT. ASSOCIATED( Sol ) ) THEN
+        CALL Warn('SaveLinearSystem','Solution not associated!')
+        SaveSol = .FALSE.
+      ELSE
+        dumpfile = TRIM(dumpprefix)//'_sol.dat'
+        IF(Parallel) dumpfile = TRIM(dumpfile)//'.'//TRIM(I2S(ParEnv % myPE))
+        CALL Info('SaveLinearSystem','Saving solution to: '//TRIM(dumpfile))
+        OPEN(1,FILE=dumpfile, STATUS='Unknown')
+        DO i=1,SIZE(Sol)
+          WRITE(1,'(I0,ES15.6)') i,Sol(i)
+        END DO
+        CLOSE( 1 ) 
+      END IF
+    END IF
+    
     
     dumpfile = TRIM(dumpprefix)//'_sizes.dat'
     IF(Parallel) dumpfile = TRIM(dumpfile)//'.'//TRIM(I2S(ParEnv % myPE))
@@ -14180,7 +14201,7 @@ CONTAINS
     OPEN(1,FILE=dumpfile, STATUS='Unknown')
     WRITE(1,*) A % NumberOfRows
     WRITE(1,*) SIZE(A % Values)
-    IF( SavePerm ) WRITE(1,*) SIZE( Perm )
+    IF( SavePerm ) WRITE(1,*) SIZE( Perm )    
     CLOSE(1)
 
     IF(Parallel) THEN
