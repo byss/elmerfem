@@ -126,9 +126,10 @@ SUBROUTINE StatCurrentSolver( Model,Solver,dt,Transient )
 !------------------------------------------------------------------------------
   TYPE(Element_t),POINTER :: Element
   REAL(KIND=dp) :: Norm
-  INTEGER :: n, nb, nd, t, active
+  INTEGER :: n, nb, nd, t, active, RelOrder
   INTEGER :: iter, maxiter, nColours, col, totelem, nthr
   LOGICAL :: Found, VecAsm, InitHandles, AxiSymmetric
+  TYPE(ValueList_t), POINTER :: Params 
   TYPE(Mesh_t), POINTER :: Mesh
   CHARACTER(*), PARAMETER :: Caller = 'StatCurrentSolver'
 !------------------------------------------------------------------------------
@@ -139,16 +140,34 @@ SUBROUTINE StatCurrentSolver( Model,Solver,dt,Transient )
   CALL DefaultStart()
 
   Mesh => GetMesh()
+  Params => GetSolverParams()
   
   AxiSymmetric = ( CurrentCoordinateSystem() /= Cartesian ) 
   
-  maxiter = ListGetInteger( GetSolverParams(),&
+  maxiter = ListGetInteger( Params, &
       'Nonlinear System Max Iterations',Found,minv=1)
   IF(.NOT. Found ) maxiter = 1
 
   nthr = 1
   !$ nthr = omp_get_max_threads()
 
+  VecAsm = ListGetLogical( Params,'Vector Assembly',Found )
+  IF(.NOT. Found ) THEN
+    VecAsm = (nColours > 1) .OR. (nthr > 1)
+  END IF
+    
+  IF( VecAsm .AND. AxiSymmetric ) THEN
+    CALL Info(Caller,'Vectorized loop not yet available in axisymmetric case',Level=7)    
+  END IF
+
+  IF( VecAsm ) THEN
+    CALL Info(Caller,'Performing vectorized bulk element assembly',Level=7)
+  ELSE
+    CALL Info(Caller,'Performing non-vectorized bulk element assembly',Level=7)      
+  END IF
+
+  RelOrder = GetInteger( Params,'Relative Integration Order',Found ) 
+  
   ! Nonlinear iteration loop:
   !--------------------------
   DO iter=1,maxiter
@@ -160,18 +179,6 @@ SUBROUTINE StatCurrentSolver( Model,Solver,dt,Transient )
     totelem = 0
 
     nColours = GetNOFColours(Solver)
-    VecAsm = (nColours > 1) .OR. (nthr == 1)
-
-    IF( VecAsm .AND. AxiSymmetric ) THEN
-      CALL Info(Caller,'Vectorized loop not yet available in axisymmetric case',Level=12)    
-      VecAsm = .FALSE.
-    END IF
-    
-    IF( VecAsm ) THEN
-      CALL Info(Caller,'Performing vectorized bulk element assembly',Level=12)
-    ELSE
-      CALL Info(Caller,'Performing non-vectorized bulk element assembly',Level=12)      
-    END IF
 
     CALL ResetTimer( Caller//'BulkAssembly' )
 
@@ -309,8 +316,12 @@ CONTAINS
 
     ! Currently the vectorized basis always use p-elements which have different
     ! local coordinate convention
-    IP = GaussPoints( Element, PReferenceElement = .TRUE. )
-    
+    IF( RelOrder /= 0 ) THEN
+      IP = GaussPoints( Element, PReferenceElement = .TRUE., RelOrder = RelOrder)
+    ELSE
+      IP = GaussPoints( Element, PReferenceElement = .TRUE. )      
+    END IF
+      
     ngp = IP % n
 
     ! Deallocate storage if needed
@@ -410,8 +421,12 @@ CONTAINS
     
     dim = CoordinateSystemDimension()
 
-    IP = GaussPoints( Element )
-
+    IF( RelOrder /= 0 ) THEN
+      IP = GaussPoints( Element, RelOrder = RelOrder)
+    ELSE
+      IP = GaussPoints( Element )
+    END IF
+      
     ! Allocate storage if needed
     IF (.NOT. ALLOCATED(Basis)) THEN
       m = Mesh % MaxElementDofs
