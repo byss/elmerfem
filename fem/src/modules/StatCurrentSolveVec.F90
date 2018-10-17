@@ -126,7 +126,7 @@ SUBROUTINE StatCurrentSolver( Model,Solver,dt,Transient )
 !------------------------------------------------------------------------------
   TYPE(Element_t),POINTER :: Element
   REAL(KIND=dp) :: Norm
-  INTEGER :: n, nb, nd, t, active, RelOrder
+  INTEGER :: n, nb, nd, t, active, dim, RelOrder
   INTEGER :: iter, maxiter, nColours, col, totelem, nthr
   LOGICAL :: Found, VecAsm, InitHandles, AxiSymmetric
   TYPE(ValueList_t), POINTER :: Params 
@@ -143,13 +143,16 @@ SUBROUTINE StatCurrentSolver( Model,Solver,dt,Transient )
   Params => GetSolverParams()
   
   AxiSymmetric = ( CurrentCoordinateSystem() /= Cartesian ) 
-  
+  dim = CoordinateSystemDimension() 
+
   maxiter = ListGetInteger( Params, &
       'Nonlinear System Max Iterations',Found,minv=1)
   IF(.NOT. Found ) maxiter = 1
 
   nthr = 1
   !$ nthr = omp_get_max_threads()
+
+  nColours = GetNOFColours(Solver)
 
   VecAsm = ListGetLogical( Params,'Vector Assembly',Found )
   IF(.NOT. Found ) THEN
@@ -177,8 +180,6 @@ SUBROUTINE StatCurrentSolver( Model,Solver,dt,Transient )
     CALL DefaultInitialize()
 
     totelem = 0
-
-    nColours = GetNOFColours(Solver)
 
     CALL ResetTimer( Caller//'BulkAssembly' )
 
@@ -218,7 +219,6 @@ SUBROUTINE StatCurrentSolver( Model,Solver,dt,Transient )
     CALL DefaultFinishBulkAssembly()
 
     nColours = GetNOFBoundaryColours(Solver)
-    VecAsm = (nColours > 1) .OR. (nthr == 1)
 
     CALL Info(Caller,'Performing boundary element assembly',Level=12)
     CALL ResetTimer(Caller//'BCAssembly')
