@@ -221,7 +221,7 @@ CONTAINS
      FoundDG = .FALSE.
 
      IF( DG ) THEN    
-       DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found ) 
+       DB = ListGetLogical( Solver % Values,'DG Reduced Basis',Found ) 
      ELSE
        DB = .FALSE.
      END IF

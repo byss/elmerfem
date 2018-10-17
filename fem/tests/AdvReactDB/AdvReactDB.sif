@@ -79,7 +79,7 @@ Solver 1
   Exported Variable 1 = "Nodal Result"
 
   Discontinuous Galerkin = Logical TRUE
-  Discontinuous Bodies = True
+  DG Reduced Basis = Logical True
   Optimize Bandwidth = False
   
   Linear System Save = True

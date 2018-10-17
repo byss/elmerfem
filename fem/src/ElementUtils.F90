@@ -317,7 +317,7 @@ CONTAINS
     IF ( PRESENT(GlobalBubbles) ) GB = GlobalBubbles
 
     IF( DgSolver ) THEN
-      DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found) 
+      DB = ListGetLogical( Solver % Values,'DG Reduced Basis',Found) 
     ELSE
       DB = .FALSE.
     END IF
@@ -372,6 +372,10 @@ CONTAINS
           Indexes(n) = Elm % DGIndexes(j)
         END DO
 
+        IF( Elm % DGDofs /= Elm % TYPE % NumberOfNodes ) THEN
+          CALL Fatal('MakeListMatrix','Mismatch in sizes in reduced basis DG!')
+        END IF
+        
         DO i=1,n
           k1 = Reorder(Indexes(i))
           IF ( k1 <= 0 ) CYCLE
@@ -1342,7 +1346,7 @@ CONTAINS
      IF ( PRESENT(GlobalBubbles) )  GB=GlobalBubbles
 
      IF( Dg ) THEN
-       DB = ListGetLogical( Solver % Values,'Discontinuous Bodies',Found ) 
+       DB = ListGetLogical( Solver % Values,'DG Reduced Basis',Found ) 
      ELSE
        DB = .FALSE.
      END IF
