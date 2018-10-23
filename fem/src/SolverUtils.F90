@@ -340,36 +340,24 @@ CONTAINS
 !> Moves a row and and sumes it with the values of a second one, optionally 
 !> multiplying with a constant.
 !------------------------------------------------------------------------------
-   SUBROUTINE MoveRow( A, n1, n2, Coeff )
+   SUBROUTINE MoveRow( A, n1, n2, Coeff, StayCoeff )
 !------------------------------------------------------------------------------
      TYPE(Matrix_t) :: A
      INTEGER :: n1, n2
-     REAL(KIND=dp), OPTIONAL :: Coeff
+     REAL(KIND=dp), OPTIONAL :: Coeff, StayCoeff
 !------------------------------------------------------------------------------
 
      SELECT CASE( A % FORMAT )
        CASE( MATRIX_CRS )
-         IF( PRESENT( Coeff ) ) THEN
-           CALL CRS_MoveRow( A,n1,n2,Coeff )
-         ELSE
-           CALL CRS_MoveRow( A,n1,n2 )  
-         END IF
+         CALL CRS_MoveRow( A,n1,n2,Coeff,StayCoeff )
 
          ! If entries are not found the format is changed on-the-fly
          IF( A % FORMAT == MATRIX_LIST ) THEN
-           IF( PRESENT( Coeff ) ) THEN
-             CALL CRS_MoveRow( A,n1,n2,Coeff )
-           ELSE
-             CALL CRS_MoveRow( A,n1,n2 )  
+           CALL CRS_MoveRow( A,n1,n2,Coeff,StayCoeff ) ! does this make sense?
          END IF
-       END IF
-
+         
        CASE( MATRIX_LIST )
-         IF( PRESENT( Coeff ) ) THEN
-           CALL List_MoveRow( A % ListMatrix,n1,n2,Coeff )
-         ELSE
-           CALL List_MoveRow( A % ListMatrix,n1,n2 )
-         END IF
+         CALL List_MoveRow( A % ListMatrix,n1,n2,Coeff,StayCoeff )
 
        CASE DEFAULT
          CALL Warn('MoveRow','Not implemented for this type')

@@ -685,14 +685,14 @@ CONTAINS
 
 
 !-------------------------------------------------------------------------------
-   SUBROUTINE List_MoveRow( List,n1,n2,coeff )
+   SUBROUTINE List_MoveRow( List,n1,n2,coeff,staycoeff )
 !-------------------------------------------------------------------------------
      TYPE(ListMatrix_t), POINTER :: List(:)
      INTEGER :: n1, n2
-     REAL(KIND=dp), OPTIONAL :: coeff
+     REAL(KIND=dp), OPTIONAL :: coeff, staycoeff
 !-------------------------------------------------------------------------------
      INTEGER :: k2
-     REAL(KIND=dp) :: Value, c
+     REAL(KIND=dp) :: val, c, d
      TYPE(ListMatrixEntry_t), POINTER :: CList
 
      IF( PRESENT(coeff)) THEN
@@ -700,7 +700,13 @@ CONTAINS
      ELSE
        c = 1.0_dp
      END IF
-     
+
+     IF( PRESENT(staycoeff)) THEN
+       d = staycoeff
+     ELSE
+       d = 0.0_dp
+     END IF
+              
      IF ( .NOT. ASSOCIATED(List) ) THEN
        CALL Warn('List_MoveRow','No List matrix present!')
        RETURN
@@ -719,11 +725,11 @@ CONTAINS
      
      DO WHILE( ASSOCIATED(CList) )
        k2 = Clist % Index
-       Value = c * Clist % Value
-       Clist % Value = 0.0_dp
+       Val = Clist % Value
+       Clist % VALUE = d * Val 
 
 ! This could be made more optimal as all the entries are for the same row!
-       CALL List_AddToMatrixElement(List,n2,k2,Value)
+       CALL List_AddToMatrixElement(List,n2,k2,c*Val)
 
        CList => CList % Next
      END DO

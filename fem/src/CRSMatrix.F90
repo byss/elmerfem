@@ -499,15 +499,16 @@ CONTAINS
 !------------------------------------------------------------------------------
 !>    Add a row together with another row of a CRS matrix, and thereafter zero it.
 !------------------------------------------------------------------------------
-  SUBROUTINE CRS_MoveRow( A,n1,n2,coeff )
+  SUBROUTINE CRS_MoveRow( A,n1,n2,coeff,staycoeff )
 !------------------------------------------------------------------------------
     TYPE(Matrix_t) :: A    !< Structure holding the matrix
     INTEGER, INTENT(IN) :: n1         !< Row number to be copied and zerod
     INTEGER, INTENT(IN) :: n2         !< Row number to be added
     REAL(KIND=dp),OPTIONAL :: coeff   !< Optional coefficient to multiply the row to be copied with
+    REAL(KIND=dp),OPTIONAL :: staycoeff   !< Optional coefficient to multiply the staying row
 !------------------------------------------------------------------------------
 
-    REAL(KIND=dp) :: VALUE, c
+    REAL(KIND=dp) :: val, c, d
     INTEGER :: i,j
 
     IF( PRESENT(Coeff)) THEN
@@ -516,11 +517,17 @@ CONTAINS
       c = 1.0_dp
     END IF
 
+    IF( PRESENT(StayCoeff)) THEN
+      d = StayCoeff
+    ELSE
+      d = 0.0_dp
+    END IF
+
     DO i=A % Rows(n1),A % Rows(n1+1)-1
       j = A % Cols(i)
-      VALUE = c * A % Values(i) 
-      A % Values(i) = 0.0_dp
-      CALL CRS_AddToMatrixElement( A,n2,j,VALUE )      
+      val = c * A % Values(i) 
+      A % Values(i) = d * val 
+      CALL CRS_AddToMatrixElement( A,n2,j,val )      
     END DO
 
   END SUBROUTINE CRS_MoveRow
