@@ -170,7 +170,7 @@ SUBROUTINE StatCurrentSolver( Model,Solver,dt,Transient )
   END IF
 
   RelOrder = GetInteger( Params,'Relative Integration Order',Found ) 
-  
+
   ! Nonlinear iteration loop:
   !--------------------------
   DO iter=1,maxiter
@@ -438,7 +438,7 @@ CONTAINS
       END IF
     END IF
 
-    CALL GetElementNodesVec( Nodes, UElement=Element )
+    CALL GetElementNodes( Nodes, UElement=Element )
 
     ! Initialize
     MASS  = 0._dp
@@ -451,23 +451,23 @@ CONTAINS
       stat = ElementInfo( Element, Nodes, IP % U(t), IP % V(t), &
           IP % W(t), detJ, Basis, dBasisdx )
       Weight = IP % s(t) * DetJ
-      
+
       IF ( AxiSymmetric ) THEN
         Weight = Weight * 2 * PI * SUM( Nodes % x(1:n)*Basis(1:n) )
       END IF
-      
+
       ! diffusion term (D*grad(u),grad(v)):
       ! -----------------------------------
       CondAtIp = ListGetElementReal( CondCoeff_h, Basis, Element, Found ) 
       STIFF(1:nd,1:nd) = STIFF(1:nd,1:nd) + Weight * &
-          CondAtIp * MATMUL( dBasisdx, TRANSPOSE( dBasisdx ) )
+          CondAtIp * MATMUL( dBasisdx(1:nd,:), TRANSPOSE( dBasisdx(1:nd,:) ) )
 
       EpsAtIp = Eps0 * ListGetElementReal( EpsCoeff_h, Basis, Element, Found )
       IF( Found ) THEN
         MASS(1:nd,1:nd) = MASS(1:nd,1:nd) + Weight * &
-            EpsAtIp * MATMUL( dBasisdx, TRANSPOSE( dBasisdx ) )
+            EpsAtIp * MATMUL( dBasisdx(1:nd,:), TRANSPOSE( dBasisdx(1:nd,:) ) )
       END IF
-      
+
       SourceAtIP = ListGetElementReal( SourceCoeff_h, Basis, Element, Found ) 
       IF( Found ) THEN
         FORCE(1:nd) = FORCE(1:nd) + Weight * SourceAtIP * Basis(1:nd)
@@ -740,7 +740,6 @@ CONTAINS
 
     CALL GetElementNodes( Nodes, UElement=Element )
     CALL GetScalarLocalSolution( ElementPot ) 
-
     
     ! Initialize
     MASS  = 0._dp
@@ -770,7 +769,7 @@ CONTAINS
       FORCE(1,1:n) = FORCE(1,1:n) + Weight * Basis(1:n)
 
       CondAtIp = ListGetElementReal( CondCoeff_h, Basis, Element, Found, GaussPoint = t ) 
-      ! EpsAtIp = Eps0 * ListGetElementReal( EpsCoeff_h, Basis, Element, Found )
+      EpsAtIp = Eps0 * ListGetElementReal( EpsCoeff_h, Basis, Element, Found )
 
 
       ! Compute the electric field from the potential: E = -grad Phi
