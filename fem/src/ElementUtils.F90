@@ -1326,7 +1326,7 @@ CONTAINS
      TYPE(Element_t), POINTER :: Element
      TYPE(ListMatrixEntry_t), POINTER :: CList
      CHARACTER(LEN=MAX_NAME_LEN) :: Eq, str
-     LOGICAL :: GotIt, DG, GB, DB, UseOptimized, Found
+     LOGICAL :: GotIt, DG, GB, UseOptimized, Found
      INTEGER i,j,k,l,k1,t,n, p,m, minEdgeDOFs, maxEdgeDOFs, &
            minFaceDOFs, maxFaceDOFs, BDOFs, cols, istat
      INTEGER, POINTER :: Ivals(:)
@@ -1340,20 +1340,16 @@ CONTAINS
      NULLIFY( Matrix )
 
      DG = .FALSE.
-     IF ( PRESENT(DGSolver) )  DG=DGSolver
+     IF ( PRESENT(DGSolver) )  DG = DGSolver
 
      GB = .FALSE.
-     IF ( PRESENT(GlobalBubbles) )  GB=GlobalBubbles
-
-     IF( Dg ) THEN
-       DB = ListGetLogical( Solver % Values,'DG Reduced Basis',Found ) 
-     ELSE
-       DB = .FALSE.
-     END IF
+     IF ( PRESENT(GlobalBubbles) ) GB = GlobalBubbles
        
-     IF( DB .AND. OptimizeBW ) THEN
-       CALL Info('CreateMatrix','Suppressing bandwidth optimization for discontinuous bodies',Level=8)
-       OptimizeBW = .FALSE.
+     IF( OptimizeBW ) THEN
+       IF( ListGetLogical( Solver % Values,'DG Reduced Basis',Found ) ) THEN
+         CALL Info('CreateMatrix','Suppressing bandwidth optimization for discontinuous bodies',Level=8)
+         OptimizeBW = .FALSE.
+       END IF
      END IF
 
      

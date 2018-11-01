@@ -230,18 +230,34 @@ CONTAINS
      IF ( DB ) THEN
        BLOCK
          INTEGER, ALLOCATABLE :: NodeIndex(:)
-         INTEGER :: body_id
-
+         INTEGER :: body_id, MaxGroup, group0, group
+         INTEGER, POINTER :: DgMap(:)
+         LOGICAL :: GotDgMap
+         
+         DgMap => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Mapping',GotDgMap )
+         IF( GotDgMap ) THEN
+           IF( SIZE( DgMap ) /= Model % NumberOfBodies ) THEN
+             CALL Fatal('InitialPermutation','Invalid size of > Dg Reduced Basis Mapping <')
+           END IF
+           MaxGroup = MAXVAL( DgMap )
+         ELSE
+           MaxGroup = Model % NumberOfBodies
+         END IF
+         
          ALLOCATE( NodeIndex( Mesh % NumberOfNodes ) )
          
-         DO body_id=1, Model % NumberOfBodies
+         DO group0 = 1, MaxGroup
 
            NodeIndex = 0
            k1 = k
            
            DO t=1,Mesh % NumberOfBulkElements
              Element => Mesh % Elements(t) 
-             IF( Element % BodyId /= body_id ) CYCLE
+
+             group = Element % BodyId
+             IF( GotDgMap ) group = DgMap( group )
+
+             IF( group /= group0 ) CYCLE
 
              IF ( CheckElementEquation(Model,Element,Equation) ) THEN
                FoundDG = FoundDG .OR. Element % DGDOFs > 0
