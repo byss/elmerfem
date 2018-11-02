@@ -525,9 +525,11 @@ CONTAINS
 
     DO i=A % Rows(n1),A % Rows(n1+1)-1
       j = A % Cols(i)
-      val = c * A % Values(i) 
-      A % Values(i) = d * val 
-      CALL CRS_AddToMatrixElement( A,n2,j,val )      
+      val = A % Values(i) 
+      IF( ABS( val ) > TINY( val ) ) THEN
+        A % Values(i) = d * val 
+        CALL CRS_AddToMatrixElement( A,n2,j,c*val )      
+      END IF
     END DO
 
   END SUBROUTINE CRS_MoveRow

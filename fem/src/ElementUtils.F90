@@ -272,6 +272,8 @@ CONTAINS
    END SUBROUTINE FreeMatrix
 !------------------------------------------------------------------------------
 
+
+   
 !------------------------------------------------------------------------------
 !> Create a list matrix given the mesh, the active domains and the elementtype 
 !> related to the solver. The list matrix is flexible since it can account 
@@ -296,9 +298,10 @@ CONTAINS
     LOGICAL, OPTIONAL :: CalcNonZeros
 !------------------------------------------------------------------------------
     INTEGER :: t,i,j,k,l,m,k1,k2,n,p,q,e1,e2,f1,f2, EDOFs, FDOFs, BDOFs, This, istat
-    INTEGER, ALLOCATABLE :: InvPerm(:)
+    INTEGER, ALLOCATABLE :: InvPerm(:), IndirectPairs(:)
 
-    LOGICAL :: Flag, FoundDG, GB, DB, Found, Radiation, DoProjectors, DoNonZeros
+    LOGICAL :: Flag, FoundDG, GB, DB, Found, Radiation, DoProjectors, &
+        DoNonZeros, DgIndirect
 
     TYPE(Matrix_t), POINTER :: Projector
 
@@ -321,7 +324,7 @@ CONTAINS
     ELSE
       DB = .FALSE.
     END IF
-      
+    
     List => List_AllocateMatrix(LocalNodes)
 
     BDOFs = Mesh % MaxBDOFs
@@ -357,140 +360,38 @@ CONTAINS
       CALL Fatal('MakeListMatrix','Allocation error for Indexes')
     END IF
 
-    ! Create the permutation for the Discontinuous Bodies solver
-    ! which is a subclass of DG solvers. 
-    !-------------------------------------------------------------------
-    IF ( DB ) THEN
-      DO t=1,Mesh % NumberOfBulkElements
-        n = 0
-        Elm => Mesh % Elements(t)
-        IF ( .NOT. CheckElementEquation(Model,Elm,Equation) ) CYCLE
-
-        FoundDG = FoundDG .OR. Elm % DGDOFs > 0
-        DO j=1,Elm % DGDOFs
-          n = n + 1
-          Indexes(n) = Elm % DGIndexes(j)
-        END DO
-
-        IF( Elm % DGDofs /= Elm % TYPE % NumberOfNodes ) THEN
-          CALL Fatal('MakeListMatrix','Mismatch in sizes in reduced basis DG!')
-        END IF
-        
-        DO i=1,n
-          k1 = Reorder(Indexes(i))
-          IF ( k1 <= 0 ) CYCLE
-          DO j=1,n
-            k2 = Reorder(Indexes(j))
-            IF ( k2 <= 0 ) CYCLE
-            Lptr => List_GetMatrixIndex( List,k1,k2 )
-          END DO
-        END DO
-      END DO
-
-      DO t=1,Mesh % NumberOfEdges
-        n = 0
-        Left => Mesh % Edges(t) % BoundaryInfo % Left
-        IF(.NOT. ASSOCIATED( Left ) ) CYCLE
-        IF ( .NOT. CheckElementEquation(Model,Left,Equation) ) CYCLE
-
-        Right => Mesh % Edges(t) % BoundaryInfo %  Right
-        IF(.NOT. ASSOCIATED( Right ) ) CYCLE
-        IF ( .NOT. CheckElementEquation(Model,Right,Equation) ) CYCLE
-
-        IF( Left % BodyId == Right % BodyId ) CYCLE
-
-        FoundDG = FoundDG .OR. Left % DGDOFs > 0
-        DO j=1,Left % DGDOFs
-          n = n + 1
-          Indexes(n) = Left % DGIndexes(j)
-        END DO
-
-        FoundDG = FoundDG .OR. Right % DGDOFs > 0
-        DO j=1,Right % DGDOFs
-          n = n + 1
-          Indexes(n) = Right % DGIndexes(j)
-        END DO
-
-        DO i=1,n
-          k1 = Reorder(Indexes(i))
-          IF ( k1 <= 0 ) CYCLE
-          DO j=1,n
-            k2 = Reorder(Indexes(j))
-            IF ( k2 <= 0 ) CYCLE
-            Lptr => List_GetMatrixIndex( List,k1,k2 )
-          END DO
-        END DO
-      END DO
-
-
-      DO t=1,Mesh % NumberOfFaces
-        n = 0
-        Left => Mesh % Faces(t) % BoundaryInfo % Left
-        IF(.NOT. ASSOCIATED( Left ) ) CYCLE
-        IF ( .NOT. CheckElementEquation(Model,Left,Equation) ) CYCLE
-
-        Right => Mesh % Edges(t) % BoundaryInfo %  Right
-        IF(.NOT. ASSOCIATED( Right ) ) CYCLE
-        IF ( .NOT. CheckElementEquation(Model,Right,Equation) ) CYCLE
-
-        IF( Left % BodyId == RightBodyId ) CYCLE
-
-        FoundDG = FoundDG .OR. Left % DGDOFs > 0
-        DO j=1,Left % DGDOFs
-          n = n + 1
-          Indexes(n) = Left % DGIndexes(j)
-        END DO
-
-        FoundDG = FoundDG .OR. Right % DGDOFs > 0
-        DO j=1,Right % DGDOFs
-          n = n + 1
-          Indexes(n) = Right % DGIndexes(j)
-        END DO
-
-        DO i=1,n
-          k1 = Reorder(Indexes(i))
-          IF ( k1 <= 0 ) CYCLE
-          DO j=1,n
-            k2 = Reorder(Indexes(j))
-            IF ( k2 <= 0 ) CYCLE
-            Lptr => List_GetMatrixIndex( List,k1,k2 )
-          END DO
-        END DO
-      END DO
-
-    END IF
-
-
-    
-    ! Create the permutation for the Discontinuous Galerkin solver 
+    ! Create sparse matrix for the Discontinuous Galerkin solver 
+    ! Using either reduced or full basis
     !-------------------------------------------------------------------
     FoundDG = .FALSE.
-    IF ( DGSolver ) THEN
-       DO t=1,Mesh % NumberOfEdges
-         n = 0
-         Elm => Mesh % Edges(t) % BoundaryInfo % Left
-         IF ( ASSOCIATED( Elm ) ) THEN
-             IF ( CheckElementEquation(Model,Elm,Equation) ) THEN
-                FoundDG = FoundDG .OR. Elm % DGDOFs > 0
-                DO j=1,Elm % DGDOFs
-                   n = n + 1
-                   Indexes(n) = Elm % DGIndexes(j)
-                END DO
-             END IF
-         END IF
+    IF ( DGSolver ) THEN    
+      ! Create the sparse matrix for the Discontinuous Bodies solver
+      !-------------------------------------------------------------------
+      IF ( DB ) THEN
+        DGIndirect = ListGetLogical( Solver % Values,'DG Indirect Connections',Found )
 
-         Elm => Mesh % Edges(t) % BoundaryInfo %  Right
-         IF ( ASSOCIATED( Elm ) ) THEN
-             IF ( CheckElementEquation(Model,Elm,Equation) ) THEN
-                FoundDG = FoundDG .OR. Elm % DGDOFs > 0
-                DO j=1,Elm % DGDOFs
-                   n = n + 1
-                   Indexes(n) = Elm % DGIndexes(j)
-                END DO
-             END IF
-         END IF
+        IF( DGIndirect ) THEN
+          CALL Info('MakeListMatrix','Creating also indirect connections!',Level=12)
+          ALLOCATE( IndirectPairs( LocalNodes ) )
+          IndirectPairs = 0
+        END IF
+                
+        DO t=1,Mesh % NumberOfBulkElements
+          n = 0
+          Elm => Mesh % Elements(t)
+          IF ( .NOT. CheckElementEquation(Model,Elm,Equation) ) CYCLE
 
-         DO i=1,n
+          FoundDG = FoundDG .OR. Elm % DGDOFs > 0
+          DO j=1,Elm % DGDOFs
+            n = n + 1
+            Indexes(n) = Elm % DGIndexes(j)
+          END DO
+
+          IF( Elm % DGDofs /= Elm % TYPE % NumberOfNodes ) THEN
+            CALL Fatal('MakeListMatrix','Mismatch in sizes in reduced basis DG!')
+          END IF
+
+          DO i=1,n
             k1 = Reorder(Indexes(i))
             IF ( k1 <= 0 ) CYCLE
             DO j=1,n
@@ -498,33 +399,46 @@ CONTAINS
               IF ( k2 <= 0 ) CYCLE
               Lptr => List_GetMatrixIndex( List,k1,k2 )
             END DO
-         END DO
-      END DO
-      DO t=1,Mesh % NumberOfFaces
-         n = 0
-         Elm => Mesh % Faces(t) % BoundaryInfo % Left
-         IF ( ASSOCIATED( Elm ) ) THEN
-             IF ( CheckElementEquation(Model,Elm,Equation) ) THEN
-                FoundDG = FoundDG .OR. Elm % DGDOFs > 0
-                DO j=1,Elm % DGDOFs
-                   n = n + 1
-                   Indexes(n) = Elm % DGIndexes(j)
-                END DO
-             END IF
-         END IF
+          END DO
+        END DO
 
-         Elm => Mesh % Faces(t) % BoundaryInfo %  Right
-         IF ( ASSOCIATED( Elm ) ) THEN
-             IF ( CheckElementEquation(Model,Elm,Equation) ) THEN
-                FoundDG = FoundDG .OR. Elm % DGDOFs > 0
-                DO j=1,Elm % DGDOFs
-                   n = n + 1
-                   Indexes(n) = Elm % DGIndexes(j)
-                END DO
-             END IF
-         END IF
+        DO t=1,Mesh % NumberOfEdges
+          n = 0
+          Left => Mesh % Edges(t) % BoundaryInfo % Left
+          IF(.NOT. ASSOCIATED( Left ) ) CYCLE
+          IF ( .NOT. CheckElementEquation(Model,Left,Equation) ) CYCLE
 
-         DO i=1,n
+          Right => Mesh % Edges(t) % BoundaryInfo %  Right
+          IF(.NOT. ASSOCIATED( Right ) ) CYCLE
+          IF ( .NOT. CheckElementEquation(Model,Right,Equation) ) CYCLE
+
+          IF( Left % BodyId == Right % BodyId ) CYCLE
+
+          IF( DGIndirect ) THEN
+            DO i=1,Left % DGDOFs
+              DO j=1,Right % DGDOFs
+                IF( Left % NodeIndexes(i) == Right % NodeIndexes(j) ) THEN
+                  IndirectPairs( ReOrder( Left % DgIndexes(i) ) ) = &
+                      ReOrder( Right % DgIndexes(j) ) 
+                  EXIT
+                END IF
+              END DO
+            END DO
+          END IF            
+
+          FoundDG = FoundDG .OR. Left % DGDOFs > 0
+          DO j=1,Left % DGDOFs
+            n = n + 1
+            Indexes(n) = Left % DGIndexes(j)
+          END DO
+
+          FoundDG = FoundDG .OR. Right % DGDOFs > 0
+          DO j=1,Right % DGDOFs
+            n = n + 1
+            Indexes(n) = Right % DGIndexes(j)
+          END DO
+
+          DO i=1,n
             k1 = Reorder(Indexes(i))
             IF ( k1 <= 0 ) CYCLE
             DO j=1,n
@@ -532,10 +446,140 @@ CONTAINS
               IF ( k2 <= 0 ) CYCLE
               Lptr => List_GetMatrixIndex( List,k1,k2 )
             END DO
-         END DO
-      END DO
-    END IF
+          END DO
+        END DO
 
+
+        DO t=1,Mesh % NumberOfFaces
+          n = 0
+          Left => Mesh % Faces(t) % BoundaryInfo % Left
+          IF(.NOT. ASSOCIATED( Left ) ) CYCLE
+          IF ( .NOT. CheckElementEquation(Model,Left,Equation) ) CYCLE
+
+          Right => Mesh % Edges(t) % BoundaryInfo %  Right
+          IF(.NOT. ASSOCIATED( Right ) ) CYCLE
+          IF ( .NOT. CheckElementEquation(Model,Right,Equation) ) CYCLE
+
+          IF( Left % BodyId == RightBodyId ) CYCLE
+
+          IF( DGIndirect ) THEN
+            DO i=1,Left % DGDOFs
+              DO j=1,Right % DGDOFs
+                IF( Left % NodeIndexes(i) == Right % NodeIndexes(j) ) THEN
+                  IndirectPairs( ReOrder( Left % DgIndexes(i) ) ) = &
+                      ReOrder( Right % DgIndexes(j)) 
+                  EXIT
+                END IF
+              END DO
+            END DO
+          END IF            
+
+          FoundDG = FoundDG .OR. Left % DGDOFs > 0
+          DO j=1,Left % DGDOFs
+            n = n + 1
+            Indexes(n) = Left % DGIndexes(j)
+          END DO
+
+          FoundDG = FoundDG .OR. Right % DGDOFs > 0
+          DO j=1,Right % DGDOFs
+            n = n + 1
+            Indexes(n) = Right % DGIndexes(j)
+          END DO
+
+          DO i=1,n
+            k1 = Reorder(Indexes(i))
+            IF ( k1 <= 0 ) CYCLE
+            DO j=1,n
+              k2 = Reorder(Indexes(j))
+              IF ( k2 <= 0 ) CYCLE
+              Lptr => List_GetMatrixIndex( List,k1,k2 )
+            END DO
+          END DO
+        END DO
+
+        IF( DGIndirect ) THEN
+          DO k1 = 1, LocalNodes
+            k2 = IndirectPairs(k1)
+            IF( k2 == 0 ) CYCLE
+            !PRINT *,'Exchange structure between rows:',k1,k2
+            CALL List_ExchangeRowStructure( List, k1, k2 ) 
+          END DO
+        END IF
+          
+        
+      ELSE
+        ! Classical DG solver
+        !-------------------------------------        
+        DO t=1,Mesh % NumberOfEdges
+          n = 0
+          Elm => Mesh % Edges(t) % BoundaryInfo % Left
+          IF ( ASSOCIATED( Elm ) ) THEN
+            IF ( CheckElementEquation(Model,Elm,Equation) ) THEN
+              FoundDG = FoundDG .OR. Elm % DGDOFs > 0
+              DO j=1,Elm % DGDOFs
+                n = n + 1
+                Indexes(n) = Elm % DGIndexes(j)
+              END DO
+            END IF
+          END IF
+
+          Elm => Mesh % Edges(t) % BoundaryInfo %  Right
+          IF ( ASSOCIATED( Elm ) ) THEN
+            IF ( CheckElementEquation(Model,Elm,Equation) ) THEN
+              FoundDG = FoundDG .OR. Elm % DGDOFs > 0
+              DO j=1,Elm % DGDOFs
+                n = n + 1
+                Indexes(n) = Elm % DGIndexes(j)
+              END DO
+            END IF
+          END IF
+
+          DO i=1,n
+            k1 = Reorder(Indexes(i))
+            IF ( k1 <= 0 ) CYCLE
+            DO j=1,n
+              k2 = Reorder(Indexes(j))
+              IF ( k2 <= 0 ) CYCLE
+              Lptr => List_GetMatrixIndex( List,k1,k2 )
+            END DO
+          END DO
+        END DO
+        DO t=1,Mesh % NumberOfFaces
+          n = 0
+          Elm => Mesh % Faces(t) % BoundaryInfo % Left
+          IF ( ASSOCIATED( Elm ) ) THEN
+            IF ( CheckElementEquation(Model,Elm,Equation) ) THEN
+              FoundDG = FoundDG .OR. Elm % DGDOFs > 0
+              DO j=1,Elm % DGDOFs
+                n = n + 1
+                Indexes(n) = Elm % DGIndexes(j)
+              END DO
+            END IF
+          END IF
+
+          Elm => Mesh % Faces(t) % BoundaryInfo %  Right
+          IF ( ASSOCIATED( Elm ) ) THEN
+            IF ( CheckElementEquation(Model,Elm,Equation) ) THEN
+              FoundDG = FoundDG .OR. Elm % DGDOFs > 0
+              DO j=1,Elm % DGDOFs
+                n = n + 1
+                Indexes(n) = Elm % DGIndexes(j)
+              END DO
+            END IF
+          END IF
+
+          DO i=1,n
+            k1 = Reorder(Indexes(i))
+            IF ( k1 <= 0 ) CYCLE
+            DO j=1,n
+              k2 = Reorder(Indexes(j))
+              IF ( k2 <= 0 ) CYCLE
+              Lptr => List_GetMatrixIndex( List,k1,k2 )
+            END DO
+          END DO
+        END DO
+      END IF
+    END IF ! DGSolver
 
     ! If this is not a GD solver then create permutation considering 
     ! nodal, edge, face and bubble dofs. 
