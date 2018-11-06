@@ -738,6 +738,54 @@ CONTAINS
    END SUBROUTINE List_MoveRow
 !-------------------------------------------------------------------------------
 
+
+! Exchange row structure between two matrix rows.
+! Currently this is not optimal since we copy the structure back-and-forth.
+!-------------------------------------------------------------------------------
+   SUBROUTINE List_ExchangeRowStructure( List,n1,n2 )
+!-------------------------------------------------------------------------------
+     TYPE(ListMatrix_t), POINTER :: List(:)
+     INTEGER :: n1, n2
+!-------------------------------------------------------------------------------
+     INTEGER :: k1, k2
+     TYPE(ListMatrixEntry_t), POINTER :: CList1, CList2, Lptr
+              
+     IF ( .NOT. ASSOCIATED(List) ) THEN
+       CALL Warn('List_MoveRow','No List matrix present!')
+       RETURN
+     END IF
+         
+     Clist1 => List(n1) % Head
+     IF ( .NOT. ASSOCIATED(Clist1) ) THEN
+       CALL Warn('List__ExchangeRowStructure','Row1 not associated!')
+       RETURN
+     END IF
+
+     Clist2 => List(n2) % Head
+     IF ( .NOT. ASSOCIATED(Clist2) ) THEN
+       CALL Warn('List__ExchangeRowStructure','Row2 not associated!')
+       RETURN
+     END IF
+     
+     DO WHILE( ASSOCIATED(CList1) )
+       k1 = Clist1 % Index
+       Lptr => List_GetMatrixIndex( List,n2,k1 )
+       CList1 => CList1 % Next
+     END DO
+     
+     DO WHILE( ASSOCIATED(CList2) )
+       k2 = Clist2 % Index
+       Lptr => List_GetMatrixIndex( List,n1,k2 )
+       CList2 => CList2 % Next
+     END DO
+     
+!-------------------------------------------------------------------------------
+   END SUBROUTINE List_ExchangeRowStructure
+!-------------------------------------------------------------------------------
+
+
+
+   
 !------------------------------------------------------------------------------
   SUBROUTINE List_GlueLocalMatrix( A,N,Dofs,Indexes,LocalMatrix )
 !------------------------------------------------------------------------------

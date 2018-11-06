@@ -230,19 +230,67 @@ CONTAINS
      IF ( DB ) THEN
        BLOCK
          INTEGER, ALLOCATABLE :: NodeIndex(:)
-         INTEGER :: body_id
-
+         INTEGER :: body_id, MaxGroup, group0, group
+         INTEGER, POINTER :: DgMap(:), DgMaster(:), DgSlave(:)
+         LOGICAL :: GotDgMap, GotMaster
+         
+         DgMap => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Mapping',GotDgMap )
+         DgMaster => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Master Bodies',GotMaster )
+         DgSlave => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Slave Bodies',Found )
+         IF( GotMaster ) THEN
+           IF(.NOT. Found ) CALL Fatal('InitialPermutation','Master bodies requires slave bodies')
+         END IF
+                  
+         IF( GotDgMap ) THEN
+           IF( SIZE( DgMap ) /= Model % NumberOfBodies ) THEN
+             CALL Fatal('InitialPermutation','Invalid size of > Dg Reduced Basis Mapping <')
+           END IF
+           MaxGroup = MAXVAL( DgMap )
+         ELSE IF( GotMaster ) THEN
+           MaxGroup = 2
+         ELSE
+           MaxGroup = Model % NumberOfBodies
+         END IF
+         
          ALLOCATE( NodeIndex( Mesh % NumberOfNodes ) )
          
-         DO body_id=1, Model % NumberOfBodies
+         DO group0 = 1, MaxGroup
 
-           NodeIndex = 0
+           ! If we have master-slave lists then nullify the slave nodes at the master
+           ! interface since we want new indexes here. 
+           IF( GotMaster .AND. group0 == 2 ) THEN             
+             DO t=1,Mesh % NumberOfBulkElements
+               Element => Mesh % Elements(t)                
+               group = Element % BodyId               
+               IF( ANY( DgSlave == group ) ) THEN
+                 NodeIndex( Element % NodeIndexes ) = 0
+               END IF
+             END DO
+           ELSE
+             ! In generic case nullify all indexes already set            
+             NodeIndex = 0
+           END IF
+           
            k1 = k
            
            DO t=1,Mesh % NumberOfBulkElements
              Element => Mesh % Elements(t) 
-             IF( Element % BodyId /= body_id ) CYCLE
-
+             
+             group = Element % BodyId
+             
+             IF( GotMaster ) THEN
+               IF( group0 == 1 ) THEN
+                 IF( .NOT. ANY( DgMaster == group ) ) CYCLE
+               ELSE
+                 IF( ANY( DgMaster == group ) ) CYCLE
+               END IF
+             ELSE IF( GotDgMap ) THEN
+               group = DgMap( group ) 
+               IF( group0 /= group ) CYCLE
+             ELSE
+               IF( group0 /= group ) CYCLE
+             END IF
+               
              IF ( CheckElementEquation(Model,Element,Equation) ) THEN
                FoundDG = FoundDG .OR. Element % DGDOFs > 0
                DO i=1,Element % DGDOFs
@@ -257,7 +305,7 @@ CONTAINS
            END DO
 
            IF( k > k1 ) THEN
-             CALL Info( Caller,'Body '//TRIM(I2S(body_id))//&
+             CALL Info( Caller,'Group '//TRIM(I2S(group0))//&
                  ' has '//TRIM(I2S(k-k1))//' db dofs',Level=15)
            END IF
          END DO
