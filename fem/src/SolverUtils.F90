@@ -6614,7 +6614,7 @@ CONTAINS
          CALL MPI_RECV( r_e,n,MPI_INTEGER,j-1,111,ELMER_COMM_WORLD,status,ierr )
          CALL MPI_RECV( g_e,n,MPI_DOUBLE_PRECISION,j-1,112,ELMER_COMM_WORLD, status,ierr )
          DO j=1,n
-           k = SearchNode( A % ParallelInfo, r_e(j), Order= A % Perm )
+           k = SearchNode( A % ParallelInfo, r_e(j), Order=A % ParallelInfo % Gorder )
            IF ( k>0 ) THEN
              IF(.NOT. A % ConstrainedDOF(k)) THEN
                CALL ZeroRow(A, k )
@@ -14052,9 +14052,9 @@ CONTAINS
               proc, 7004, ELMER_COMM_WORLD, status, ierr )
 
            DO j=1,rcnt
-             l = SearchNode(A % ParallelInfo,rcol(j),Order=A % Perm)
+             l = SearchNode(A % ParallelInfo,rcol(j),Order=A % ParallelInfo % Gorder )
              IF ( l>0 ) THEN
-               k = SearchNode(A % ParallelInfo,rrow(j),Order=A % Perm)
+               k = SearchNode(A % ParallelInfo,rrow(j),Order=A % ParallelInfo % Gorder )
                IF ( k>0 ) THEN
                  IF ( l>=k ) THEN
                    DO m=Diag(k),Rows(k+1)-1
