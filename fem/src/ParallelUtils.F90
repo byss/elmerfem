@@ -393,6 +393,7 @@ CONTAINS
               Ind(k) = Matrix % Parallelinfo % Globaldofs(i)
             END DO
             CALL SortI(l,Ind,Matrix % Perm(n*DOFs+1:))
+            DEALLOCATE(Ind)
          END IF
 
          IF (ASSOCIATED(ParEnv % IsNeighbour).AND. LocalConstraints) THEN

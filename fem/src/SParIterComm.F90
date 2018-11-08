@@ -383,7 +383,7 @@ CONTAINS
     DEALLOCATE( Active )
     ALLOCATE( Active(SIZE(ParallelInfo % Interface)) )
 
-    IF ( .NOT. SourceMatrix % DGMatrix ) THEN
+!   IF ( .NOT. SourceMatrix % DGMatrix ) THEN
       DO i=1,SIZE(SourceMatrix % Perm)
         ii = SourceMatrix % Perm(i)
 
@@ -481,7 +481,7 @@ CONTAINS
           END IF
         END IF
       END DO
-    END IF
+!   END IF
 
     DEALLOCATE( Active )
 
