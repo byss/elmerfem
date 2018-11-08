@@ -484,24 +484,89 @@ CONTAINS
 
          DGReduced = ListGetLogical(Solver % Values, 'DG Reduced Basis', Found )
 
-         DO i=1,Mesh % NumberOfBulkElements
-           Element => Mesh % Elements(i)
-           IF ( .NOT. ASSOCIATED(Element % DGIndexes) ) CYCLE
-           DO j=1,Element % Type % NumberOfNodes
-             k = Matrix % Perm(Element % DGIndexes(j))
-             IF(K==0) CYCLE
+         IF( DGReduced ) THEN
+           BLOCK 
+             INTEGER, POINTER :: DgMap(:), DgMaster(:), DgSlave(:)
+             LOGICAL :: GotDgMap, GotMaster, GotSlave
+             INTEGER :: group0, group
+             LOGICAL, ALLOCATABLE :: Tagged(:)
+             
+             DgMap => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Mapping',GotDgMap )
+             DgMaster => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Master Bodies',GotMaster )
+             DgSlave => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Slave Bodies',GotSlave )
+             
+             IF( GotSlave .AND. GotMaster ) THEN
+               DO group0 = 1, 2
 
-             IF (DGReduced) THEN
-               MatrixPI % GlobalDOFs(k) = (Element % BodyId-1)*maxnode +  &
-                     MeshPI % GlobalDOFs(Element % NodeIndexes(j))
-             ELSE
+                 DO i=1,Mesh % NumberOfBulkElements
+                   Element => Mesh % Elements(i)
+                   IF ( .NOT. ASSOCIATED(Element % DGIndexes) ) CYCLE                 
+                   group = Element % BodyId
+
+                   IF( group0 == 1 ) THEN
+                     IF( .NOT. ANY( DgMaster == group ) ) CYCLE
+                   ELSE
+                     IF( ANY ( DgMaster == group ) ) CYCLE                     
+                   END IF
+                   group = group0 - 1 
+
+                   DO j=1,Element % TYPE % NumberOfNodes
+                     k = Matrix % Perm(Element % DGIndexes(j))
+                     IF(k == 0) CYCLE                                                       
+                     
+                     ! Set the global index for slave dofs only if it not already set for
+                     ! local dofs
+                     IF( group0 == 2 ) THEN
+                       IF( MatrixPI % GlobalDOFs(k) > 0 ) CYCLE
+                     END IF
+                     
+                     MatrixPI % GlobalDOFs(k) = group * maxnode +  &
+                         MeshPI % GlobalDOFs(Element % NodeIndexes(j))               
+                   END DO
+                 END DO
+               END DO
+             ELSE               
+               DO i=1,Mesh % NumberOfBulkElements
+                 Element => Mesh % Elements(i)
+                 IF ( .NOT. ASSOCIATED(Element % DGIndexes) ) CYCLE
+
+                 group0 = Element % BodyId
+
+                 IF( GotMaster ) THEN
+                   IF( ANY( DgMaster == group0 ) ) THEN
+                     group = 1
+                   ELSE
+                     group = 2
+                   END IF
+                 ELSE IF( GotDgMap ) THEN
+                   group = DgMap( group0 )
+                 ELSE
+                   group = group0                   
+                 END IF
+                 group = group - 1
+
+                 DO j=1,Element % TYPE % NumberOfNodes
+                   k = Matrix % Perm(Element % DGIndexes(j))
+                   IF(k == 0) CYCLE                                                       
+                   MatrixPI % GlobalDOFs(k) = group * maxnode +  &
+                       MeshPI % GlobalDOFs(Element % NodeIndexes(j))               
+                 END DO
+               END DO
+             END IF             
+           END BLOCK
+         ELSE         
+           DO i=1,Mesh % NumberOfBulkElements
+             Element => Mesh % Elements(i)
+             IF ( .NOT. ASSOCIATED(Element % DGIndexes) ) CYCLE
+             DO j=1,Element % TYPE % NumberOfNodes
+               k = Matrix % Perm(Element % DGIndexes(j))
+               IF(k == 0) CYCLE
                MatrixPI % GlobalDOFs(k) = 8*(Element % GElementIndex-1) + j
-             END IF
+             END DO
            END DO
-         END DO
-         ALLOCATE( MatrixPI % Interface(n), MatrixPI % NeighbourList(n) )
-
-
+         END IF
+         
+         ALLOCATE( MatrixPI % INTERFACE(n), MatrixPI % NeighbourList(n) )
          MatrixPI % Interface = .FALSE.
          DO i=1,n
            MtrxN => MatrixPI % NeighbourList(i)

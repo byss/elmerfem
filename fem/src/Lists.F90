@@ -232,14 +232,11 @@ CONTAINS
          INTEGER, ALLOCATABLE :: NodeIndex(:)
          INTEGER :: body_id, MaxGroup, group0, group
          INTEGER, POINTER :: DgMap(:), DgMaster(:), DgSlave(:)
-         LOGICAL :: GotDgMap, GotMaster
+         LOGICAL :: GotDgMap, GotMaster, GotSlave
          
          DgMap => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Mapping',GotDgMap )
          DgMaster => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Master Bodies',GotMaster )
-         DgSlave => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Slave Bodies',Found )
-         IF( GotMaster ) THEN
-           IF(.NOT. Found ) CALL Fatal('InitialPermutation','Master bodies requires slave bodies')
-         END IF
+         DgSlave => ListGetIntegerArray( Solver % Values,'DG Reduced Basis Slave Bodies',GotSlave )
                   
          IF( GotDgMap ) THEN
            IF( SIZE( DgMap ) /= Model % NumberOfBodies ) THEN
@@ -258,11 +255,11 @@ CONTAINS
 
            ! If we have master-slave lists then nullify the slave nodes at the master
            ! interface since we want new indexes here. 
-           IF( GotMaster .AND. group0 == 2 ) THEN             
+           IF( GotSlave .AND. group0 == 2 ) THEN             
              DO t=1,Mesh % NumberOfBulkElements
                Element => Mesh % Elements(t)                
                group = Element % BodyId               
-               IF( ANY( DgSlave == group ) ) THEN
+               IF( ANY( DgSlave == group ) ) THEN                 
                  NodeIndex( Element % NodeIndexes ) = 0
                END IF
              END DO
@@ -280,8 +277,10 @@ CONTAINS
              
              IF( GotMaster ) THEN
                IF( group0 == 1 ) THEN
+                 ! First loop number dofs in "master bodies" only
                  IF( .NOT. ANY( DgMaster == group ) ) CYCLE
-               ELSE
+               ELSE 
+                 ! Second loop number dofs in all bodies except "master bodies"
                  IF( ANY( DgMaster == group ) ) CYCLE
                END IF
              ELSE IF( GotDgMap ) THEN
