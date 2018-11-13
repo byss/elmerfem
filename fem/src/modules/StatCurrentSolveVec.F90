@@ -706,6 +706,11 @@ SUBROUTINE StatCurrentSolver_post( Model,Solver,dt,Transient )
   VolTot = 0.0_dp
   DO t = 1, GetNOFActive()
     Element => GetActiveElement(t)
+
+    IF( ParEnv % PEs > 1 ) THEN
+      IF( ParEnv % MyPe /= Element % PartIndex ) CYCLE
+    END IF
+    
     n  = GetElementNOFNodes(Element)
     CALL LocalPostAssembly( Element, n, InitHandles, MASS, FORCE )
     CALL LocalPostSolve( Element, n, MASS, FORCE )
