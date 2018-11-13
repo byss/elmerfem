@@ -365,12 +365,14 @@ CONTAINS
     END IF
 
     ! time derivative of potential: MASS=MASS+(eps*grad(u),grad(v))
-    EpsAtIpVec => ListGetElementRealVec( EpsCoeff_h, ngp, Basis, Element, Found ) 
-    IF( Found ) THEN
-      CALL LinearForms_GradUdotGradU(ngp, nd, Element % TYPE % DIMENSION, dBasisdx, DetJVec, MASS, EpsAtIpVec )
-      MASS(1:nd,1:nd) = Eps0 * MASS(1:nd,1:nd)
+    IF( Transient ) THEN
+      EpsAtIpVec => ListGetElementRealVec( EpsCoeff_h, ngp, Basis, Element, Found ) 
+      IF( Found ) THEN
+        CALL LinearForms_GradUdotGradU(ngp, nd, Element % TYPE % DIMENSION, dBasisdx, DetJVec, MASS, EpsAtIpVec )
+        MASS(1:nd,1:nd) = Eps0 * MASS(1:nd,1:nd)
+      END IF
     END IF
-
+      
     ! source term: FORCE=FORCE+(u,f)
     SourceAtIpVec => ListGetElementRealVec( SourceCoeff_h, ngp, Basis, Element, Found ) 
     IF( Found ) THEN
@@ -398,9 +400,10 @@ CONTAINS
     REAL(KIND=dp), ALLOCATABLE, SAVE :: Basis(:),dBasisdx(:,:)
     REAL(KIND=dp), ALLOCATABLE, SAVE :: MASS(:,:), STIFF(:,:), FORCE(:)
     REAL(KIND=dp) :: eps0, weight
-    REAL(KIND=dp) :: SourceAtIp, EpsAtIp, CondAtIp, DetJ
+    REAL(KIND=dp) :: SourceAtIp, EpsAtIp, CondAtIp, DetJ, A
+    REAL(KIND=dp), POINTER :: CondTensor(:,:)
     LOGICAL :: Stat,Found
-    INTEGER :: i,t,p,q,dim,m,allocstat
+    INTEGER :: i,j,t,p,q,dim,m,allocstat,CondRank
     TYPE(GaussIntegrationPoints_t) :: IP
     TYPE(Nodes_t), SAVE :: Nodes
     TYPE(ValueHandle_t), SAVE :: SourceCoeff_h, CondCoeff_h, EpsCoeff_h    
@@ -458,16 +461,39 @@ CONTAINS
 
       ! diffusion term (D*grad(u),grad(v)):
       ! -----------------------------------
-      CondAtIp = ListGetElementReal( CondCoeff_h, Basis, Element, Found ) 
-      STIFF(1:nd,1:nd) = STIFF(1:nd,1:nd) + Weight * &
-          CondAtIp * MATMUL( dBasisdx(1:nd,:), TRANSPOSE( dBasisdx(1:nd,:) ) )
-
-      EpsAtIp = Eps0 * ListGetElementReal( EpsCoeff_h, Basis, Element, Found )
-      IF( Found ) THEN
-        MASS(1:nd,1:nd) = MASS(1:nd,1:nd) + Weight * &
-            EpsAtIp * MATMUL( dBasisdx(1:nd,:), TRANSPOSE( dBasisdx(1:nd,:) ) )
+      CondAtIp = ListGetElementReal( CondCoeff_h, Basis, Element, Found, &
+         GaussPoint = t, Rdim = CondRank, Rtensor = CondTensor ) 
+      IF( CondRank == 0 ) THEN
+        STIFF(1:nd,1:nd) = STIFF(1:nd,1:nd) + Weight * &
+            CondAtIp * MATMUL( dBasisdx(1:nd,:), TRANSPOSE( dBasisdx(1:nd,:) ) )
+      ELSE 
+        DO p=1,nd
+          DO q=1,nd
+            A = 0.0_dp
+            IF( CondRank == 1 ) THEN
+              DO i=1,dim
+                A = A + CondTensor(i,1) * dBasisdx(p,i) * dBasisdx(q,i)
+              END DO
+            ELSE
+              DO i=1,dim
+                DO j=1,dim
+                  A = A + CondTensor(i,j) * dBasisdx(p,i) * dBasisdx(q,j)
+                END DO
+              END DO
+            END IF
+            STIFF(p,q) = STIFF(p,q) + Weight * A
+          END DO
+        END DO
       END IF
 
+      IF( Transient ) THEN
+        EpsAtIp = Eps0 * ListGetElementReal( EpsCoeff_h, Basis, Element, Found )
+        IF( Found ) THEN
+          MASS(1:nd,1:nd) = MASS(1:nd,1:nd) + Weight * &
+              EpsAtIp * MATMUL( dBasisdx(1:nd,:), TRANSPOSE( dBasisdx(1:nd,:) ) )
+        END IF
+      END IF
+        
       SourceAtIP = ListGetElementReal( SourceCoeff_h, Basis, Element, Found ) 
       IF( Found ) THEN
         FORCE(1:nd) = FORCE(1:nd) + Weight * SourceAtIP * Basis(1:nd)
@@ -593,7 +619,7 @@ SUBROUTINE StatCurrentSolver_post( Model,Solver,dt,Transient )
 !------------------------------------------------------------------------------
   TYPE(Element_t),POINTER :: Element
   REAL(KIND=dp) :: Norm
-  INTEGER :: i, dofs, n, nb, nd, t, active
+  INTEGER :: i, dofs, n, nb, nd, t, active, CondRank
   LOGICAL :: Found, InitHandles
   TYPE(Mesh_t), POINTER :: Mesh
   REAL(KIND=dp), ALLOCATABLE :: WeightVector(:),MASS(:,:),FORCE(:,:)  
@@ -602,6 +628,7 @@ SUBROUTINE StatCurrentSolver_post( Model,Solver,dt,Transient )
   LOGICAL :: CalcCurrent, CalcField, CalcHeating, NeedScaling, ConstantWeights, Axisymmetric
   TYPE(ValueList_t), POINTER :: Params
   REAL(KIND=dp) :: HeatingTot, Voltot
+  REAL(KIND=dp), POINTER :: CondTensor(:,:)  
   
   TYPE PostVars_t
     TYPE(Variable_t), POINTER :: Var => NULL()
@@ -768,10 +795,11 @@ CONTAINS
       !----------------------------------------------------------------------------
       FORCE(1,1:n) = FORCE(1,1:n) + Weight * Basis(1:n)
 
-      CondAtIp = ListGetElementReal( CondCoeff_h, Basis, Element, Found, GaussPoint = t ) 
-      EpsAtIp = Eps0 * ListGetElementReal( EpsCoeff_h, Basis, Element, Found )
+      CondAtIp = ListGetElementReal( CondCoeff_h, Basis, Element, Found, &
+         GaussPoint = t, Rdim = CondRank, Rtensor = CondTensor ) 
 
-
+      ! EpsAtIp = Eps0 * ListGetElementReal( EpsCoeff_h, Basis, Element, Found )
+        
       ! Compute the electric field from the potential: E = -grad Phi
       !------------------------------------------------------------------------------
       DO j = 1, DIM
@@ -785,7 +813,16 @@ CONTAINS
 
       ! Compute the volume current: J = cond (-grad Phi)
       !------------------------------------------------------------------------------
-      CondGrad(1:dim) = CondAtIp * Grad(1:dim)
+      IF( CondRank == 0 ) THEN
+        CondGrad(1:dim) = CondAtIp * Grad(1:dim)
+      ELSE IF( CondRank == 1 ) THEN
+        CondGrad(1:dim) = CondTensor(1:dim,1) * Grad(1:dim)
+      ELSE IF( CondRank == 2 ) THEN
+        DO i = 1, DIM
+          CondGrad(i) = SUM( CondTensor(i,1:dim) * Grad(1:dim) )
+        END DO
+      END IF
+
       IF( CalcCurrent ) THEN
         DO j=1,dim
           Force(2+j,1:n) = Force(2+j,1:n) - CondGrad(j) * Weight * Basis(1:n)
