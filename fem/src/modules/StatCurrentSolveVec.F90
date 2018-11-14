@@ -61,6 +61,8 @@ SUBROUTINE StatCurrentSolver_init( Model,Solver,dt,Transient )
   Params => GetSolverParams()
   dim = CoordinateSystemDimension()
 
+  CALL ListAddNewString( Params,'Variable','Potential')
+  
   CalculateElemental = ListGetLogical( Params,'Calculate Elemental Fields',Found )
   CalculateNodal = ListGetLogical( Params,'Calculate Nodal Fields',Found )
   
@@ -103,6 +105,18 @@ SUBROUTINE StatCurrentSolver_init( Model,Solver,dt,Transient )
   IF( ListGetLogical(Params,'Calculate Nodal Current',Found) ) THEN
     CALL ListAddString( Params,NextFreeKeyword('Exported Variable ',Params), &
         'Nodal Current[Nodal Current:'//TRIM(I2S(dim))//']' )
+  END IF
+
+  ! These use one flag to call library features to compute automatically
+  ! a resistivity matrix.
+  IF( ListGetLogical(Params,'Calculate Resistivity Matrix',Found ) ) THEN
+    CALL ListAddNewLogical( Params,'Constraint Modes Analysis',.TRUE.)
+    CALL ListAddNewLogical( Params,'Constraint Modes Lumped',.TRUE.)
+    CALL ListAddNewLogical( Params,'Constraint Modes Fluxes',.TRUE.)
+    CALL ListAddNewLogical( Params,'Constraint Modes Fluxes Symmetric',.TRUE.)
+    CALL ListAddNewString( Params,'Constraint Modes Fluxes Filename',&
+        'ResistivityMatrix.dat',.FALSE.)
+    CALL ListRenameAllBC( Model,'Resistivity Body','Constraint Mode Potential')
   END IF
   
 END SUBROUTINE StatCurrentSolver_Init

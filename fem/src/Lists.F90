@@ -1892,6 +1892,82 @@ CONTAINS
 !------------------------------------------------------------------------------
 
 
+!------------------------------------------------------------------------------
+!> Finds an entry in the list by its name and returns a handle to it.
+!------------------------------------------------------------------------------
+   SUBROUTINE ListRename( list, name, name2, Found ) 
+!------------------------------------------------------------------------------
+     TYPE(ValueList_t), POINTER :: List
+     CHARACTER(LEN=*) :: name, name2
+     LOGICAL, OPTIONAL :: Found
+!------------------------------------------------------------------------------
+     TYPE(ValueListEntry_t), POINTER :: ptr
+     CHARACTER(:), ALLOCATABLE :: strn
+     CHARACTER(LEN=LEN_TRIM(Name)) :: str
+     CHARACTER(LEN=LEN_TRIM(Name2)) :: str2
+     INTEGER :: k, k2, n
+
+     IF(PRESENT(Found)) Found = .FALSE.
+
+     ptr => NULL()
+     IF(.NOT.ASSOCIATED(List)) RETURN
+     
+     k = StringToLowerCase( str,Name,.TRUE. )
+     
+     Ptr => List % Head
+     DO WHILE( ASSOCIATED(ptr) )
+       n = ptr % NameLen
+       IF ( n==k ) THEN
+         IF ( ptr % Name(1:n) == str(1:n) ) EXIT
+       END IF
+       ptr => ptr % Next
+     END DO
+     
+     IF( ASSOCIATED( ptr ) ) THEN
+       k2 = StringToLowerCase( str2,Name2,.TRUE. )
+       ptr % Name(1:k2) = str2(1:k2)
+       ptr % NameLen = k2 
+       !PRINT *,'renaming >'//str(1:k)//'< to >'//str2(1:k2)//'<', k, k2
+     END IF
+          
+     IF ( PRESENT(Found) ) THEN
+       Found = ASSOCIATED(ptr)
+     ELSE IF (.NOT.ASSOCIATED(ptr) ) THEN
+       CALL Warn( 'ListRename', ' ' )
+       WRITE(Message,*) 'Requested property: ', '[',TRIM(Name),'], not found'
+       CALL Warn( 'ListRename', Message )
+       CALL Warn( 'ListRename', ' ' )
+     END IF
+!------------------------------------------------------------------------------
+   END SUBROUTINE ListRename
+!------------------------------------------------------------------------------
+
+
+!------------------------------------------------------------------------------
+!> Rename all given keywords in BC section.
+!------------------------------------------------------------------------------
+   SUBROUTINE ListRenameAllBC( Model, Name, Name2 ) 
+!------------------------------------------------------------------------------
+     TYPE(Model_t) :: Model
+     CHARACTER(LEN=*) :: Name, Name2
+     LOGICAL :: Found
+     INTEGER :: bc, n
+
+     n = 0
+     DO bc = 1,Model % NumberOfBCs
+       CALL ListRename( Model % BCs(bc) % Values, Name, Name2, Found )
+       IF( Found ) n = n + 1
+     END DO
+     IF( n > 0 ) CALL Info('ListRenameAllBCs',&
+         TRIM(Name)//' ranamed to '//TRIM(Name2)//' on '//TRIM(I2S(n))//' BCs',Level=6)
+     
+!------------------------------------------------------------------------------
+   END SUBROUTINE ListRenameAllBC
+!------------------------------------------------------------------------------
+
+   
+  
+
 !-----------------------------------------------------------------------------
 !> Finds an entry in the list by its name and returns a handle to it.
 !> This one just finds a keyword with the same start as specified by 'name'.

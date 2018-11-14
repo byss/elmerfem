@@ -6090,12 +6090,6 @@ CONTAINS
     CALL Info('SetConstraintModesBoundaries','Setting constraint modes boundaries for variable: '&
         //TRIM(Name),Level=7)
 
-    IF( .NOT. ListGetLogicalAnyBC( Model,'Constraint Modes ' // Name(1:nlen)) ) THEN
-      CALL Warn('SetConstraintModesBoundaries',&
-          'Constraint Modes Analysis requested but no constrained BCs given!')
-      RETURN
-    END IF
-
     ! Allocate the indeces for the constraint modes
     ALLOCATE( Var % ConstraintModesIndeces( A % NumberOfRows ) )
     Var % ConstraintModesIndeces = 0
@@ -6106,15 +6100,25 @@ CONTAINS
     j = 0 
     DO bc_id = 1,Model % NumberOfBCs
       BC => Model % BCs(bc_id) % Values        
-      IF( ListGetLogical( BC,& 
+      k = ListGetInteger( BC,&
+          'Constraint Mode '// Name(1:nlen), Found )
+      IF( Found ) THEN
+        IF( k == 0 ) k = -1  ! Ground gets negative value
+        BCPerm(bc_id) = k        
+      ELSE IF( ListGetLogical( BC,& 
           'Constraint Modes ' // Name(1:nlen), Found ) ) THEN
         j = j + 1
         BCPerm(bc_id) = j
       END IF
     END DO
+    
+    j = MAXVAL( BCPerm ) 
     CALL Info('SetConstraintModesBoundaries','Number of active constraint modes boundaries: '&
         //TRIM(I2S(j)),Level=7)
-
+    IF( j == 0 ) THEN
+      CALL Fatal('SetConstraintModesBoundaries',&
+          'Constraint Modes Analysis requested but no constrained BCs given!')
+    END IF
 
     Var % NumberOfConstraintModes = NDOFS * j 
     
@@ -6158,9 +6162,6 @@ CONTAINS
       IF( Var % ConstraintModesIndeces(k) == 0 ) CYCLE
       A % ConstrainedDOF(k) = .TRUE.
       A % DValues(k) = 0.0_dp
-      !b(k) = 0.0_dp
-      !CALL ZeroRow(A,k)
-      !CALL SetMatrixElement( A,k,k,1._dp )
     END DO
     
     ALLOCATE( Var % ConstraintModes( Var % NumberOfConstraintModes, A % NumberOfRows ) )
@@ -12009,6 +12010,7 @@ SUBROUTINE SolveConstraintModesSystem( StiffMatrix, Solver )
     LOGICAL :: PrecRecompute, Stat, Found, ComputeFluxes, Symmetric
     REAL(KIND=dp), POINTER CONTIG :: PValues(:)
     REAL(KIND=dp), ALLOCATABLE :: Fluxes(:), FluxesMatrix(:,:)
+    CHARACTER(LEN=MAX_NAME_LEN) :: MatrixFile
     !------------------------------------------------------------------------------
     n = StiffMatrix % NumberOfRows
     
@@ -12062,14 +12064,10 @@ SUBROUTINE SolveConstraintModesSystem( StiffMatrix, Solver )
         DO j=1,n
           k = Var % ConstraintModesIndeces(j)
           IF( k > 0 ) THEN
-            IF(.FALSE.) THEN
-              FluxesMatrix(i,k) = FluxesMatrix(i,k) + Fluxes(j)
-            ELSE
-              IF( i /= k ) THEN
-                FluxesMatrix(i,k) = FluxesMatrix(i,k) - Fluxes(j)
-              END IF
-              FluxesMatrix(i,i) = FluxesMatrix(i,i) + Fluxes(j)
+            IF( i /= k ) THEN
+              FluxesMatrix(i,k) = FluxesMatrix(i,k) - Fluxes(j)
             END IF
+            FluxesMatrix(i,i) = FluxesMatrix(i,i) + Fluxes(j)
           END IF
         END DO
       END IF
@@ -12082,16 +12080,32 @@ SUBROUTINE SolveConstraintModesSystem( StiffMatrix, Solver )
       IF( Symmetric ) THEN
         FluxesMatrix = 0.5_dp * ( FluxesMatrix + TRANSPOSE( FluxesMatrix ) )
       END IF
+      
+      CALL Info( 'SolveConstraintModesSystem','Constraint Modes Fluxes', Level=5 )
       DO i=1,m
         DO j=1,m
           IF( Symmetric .AND. j < i ) CYCLE
           WRITE( Message, '(I3,I3,ES15.5)' ) i,j,FluxesMatrix(i,j)
-          CALL Info( 'SolveConstraintModesSystem', Message, Level=4 )
+          CALL Info( 'SolveConstraintModesSystem', Message, Level=5 )
         END DO
       END DO
+      
+      MatrixFile = ListGetString(Solver % Values,'Constraint Modes Fluxes Filename',Found )
+      IF( Found ) THEN
+        OPEN (10, FILE=MatrixFile)
+        DO i=1,m
+          DO j=1,m
+            WRITE (10,'(ES17.9)',advance='no') FluxesMatrix(i,j)
+          END DO
+          WRITE(10,'(A)') ' '
+        END DO
+        CLOSE(10)     
+        CALL Info( 'SolveConstraintModesSystem',&
+            'Constraint modes fluxes was saved to file '//TRIM(MatrixFile),Level=5)
+      END IF
+      
       DEALLOCATE( Fluxes )
     END IF
-
 
     CALL ListAddLogical( Solver % Values,'No Precondition Recompute',.FALSE.)
     
