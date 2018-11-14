@@ -534,14 +534,14 @@ CONTAINS
     LOGICAL, INTENT(INOUT) :: InitHandles
 !------------------------------------------------------------------------------
     REAL(KIND=dp) :: F,C,Ext, Weight
-    REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ
+    REAL(KIND=dp) :: Basis(nd),dBasisdx(nd,3),DetJ,Coord(3),Normal(3)
     REAL(KIND=dp) :: STIFF(nd,nd), FORCE(nd), LOAD(n)
-    LOGICAL :: Stat,Found
+    LOGICAL :: Stat,Found,RobinBC
     INTEGER :: i,t,p,q,dim
     TYPE(GaussIntegrationPoints_t) :: IP
     TYPE(ValueList_t), POINTER :: BC       
     TYPE(Nodes_t) :: Nodes
-    TYPE(ValueHandle_t), SAVE :: Flux_h, Robin_h, Ext_h
+    TYPE(ValueHandle_t), SAVE :: Flux_h, Robin_h, Ext_h, Farfield_h
 
     SAVE Nodes
     !$OMP THREADPRIVATE(Nodes,Flux_h,Robin_h,Ext_h)
@@ -553,6 +553,7 @@ CONTAINS
       CALL ListInitElementKeyword( Flux_h,'Boundary Condition','Current Density')
       CALL ListInitElementKeyword( Robin_h,'Boundary Condition','Electric Resistivity')
       CALL ListInitElementKeyword( Ext_h,'Boundary Condition','External Potential')
+      CALL ListInitElementKeyword( Farfield_h,'Boundary Condition','Farfield Potential')
       InitHandles = .FALSE.
     END IF
     
@@ -578,7 +579,7 @@ CONTAINS
       IF ( AxiSymmetric ) THEN
         Weight = Weight * 2 * PI * SUM( Nodes % x(1:n)*Basis(1:n) )
       END IF
-
+      
       ! Evaluate terms at the integration point:
       !------------------------------------------
 
@@ -591,10 +592,19 @@ CONTAINS
 
       ! Robin condition (r*(u-u_0)):
       ! ---------------------------
-      C = ListGetElementReal( Robin_h, Basis, Element, Found )
-
-      IF( Found ) THEN
+      Ext = ListGetElementReal( Farfield_h, Basis, Element, RobinBC )
+      IF( RobinBC ) THEN
+        Coord(1) = SUM( Nodes % x(1:n)*Basis(1:n) )
+        Coord(2) = SUM( Nodes % y(1:n)*Basis(1:n) )
+        Coord(3) = SUM( Nodes % z(1:n)*Basis(1:n) )
+        Normal = NormalVector( Element, Nodes, IP % u(t), IP % v(t), .TRUE. )
+        C = SUM( Coord * Normal ) / SUM( Coord * Coord )         
+      ELSE
+        C = ListGetElementReal( Robin_h, Basis, Element, RobinBC )
         Ext = ListGetElementReal( Ext_h, Basis, Element, Found )
+      END IF
+        
+      IF( RobinBC ) THEN
         DO p=1,nd
           DO q=1,nd
             STIFF(p,q) = STIFF(p,q) + Weight * C * Basis(q) * Basis(p)
@@ -666,7 +676,7 @@ SUBROUTINE StatCurrentSolver_post( Model,Solver,dt,Transient )
   ! Joule losses: type 1, component 1
   PostVars(1) % Var => VariableGet( Mesh % Variables, 'Nodal Joule Heating')
   PostVars(1) % NodalField = .TRUE.
-  PostVars(2) % Var => VariableGet( Mesh % Variables, 'Joule Heatg')
+  PostVars(2) % Var => VariableGet( Mesh % Variables, 'Joule Heating')
   PostVars(3) % Var => VariableGet( Mesh % Variables, 'Joule Heating e')
   PostVars(1:3) % FieldType = 1
 
