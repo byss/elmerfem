@@ -1596,7 +1596,9 @@ INTEGER::inside
 
       IF ( hypre_sol /= 1) THEN
          IF ( SEQL(Prec,'ilu') ) THEN
-           READ( Prec(4:), * ) ILUn
+           Ilun = 0
+           READ( Prec(4:), *, END=10 ) ILUn
+10         CONTINUE
            WRITE( Message,'(a, i1)') 'Preconditioner: ILU', ILUn
            CALL Info("SParIterSolver", Message,Level=3)
          ELSE IF( Prec == 'parasails' ) THEN
